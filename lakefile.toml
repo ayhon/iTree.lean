@@ -1,0 +1,10 @@
+name = "IterTree"
+version = "0.1.0"
+defaultTargets = ["itertree"]
+
+[[lean_lib]]
+name = "IterTree"
+
+[[lean_exe]]
+name = "itertree"
+root = "Main"
