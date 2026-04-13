@@ -1,7 +1,7 @@
 namespace IterTree
 
 /-- iTree equivalent of Std.IterM -/
-structure iTree {σ : Type σ} («?» : Type r → Type q) (m : Type m₁ → Type m₂) (ν : Type ν) :
+structure iTree {σ : Type σ} («?» : Type r → Type q) (ν : Type ν) :
     Type σ where
   internalState : σ
 
@@ -17,8 +17,7 @@ inductive Observation (ι : Type ι)(«?» : Type ι → Type q) (ν : Type ν) 
 class Executable (σ : Type σ)
   («?» : Type σ → Type q)
   (ν : Type ν)
-  (m : Type _ → Type _)
 where
-  IsPlausibleObservation : iTree (σ := σ) «?» m ν → Observation (iTree (σ := σ) «?» m ν) «?» ν → Prop
-  exec : (it : iTree (σ := σ) «?» m ν) →
-    m {obs : Observation (iTree (σ := σ) «?» m ν) «?» ν // IsPlausibleObservation it obs}
+  IsPlausibleObservation : iTree (σ := σ) «?» ν → Observation (iTree (σ := σ) «?» ν) «?» ν → Prop
+  exec : (it : iTree (σ := σ) «?» ν) →
+    {obs : Observation (iTree (σ := σ) «?» ν) «?» ν // IsPlausibleObservation it obs}
