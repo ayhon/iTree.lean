@@ -128,7 +128,7 @@ allows definining the same operations as the finite case.
 
 -/
 
-namespace StateMachine
+section StateMachine
 
 /-
 
@@ -844,6 +844,133 @@ def elim {R : Type r}{E : Type a → Type e} {motive : iTree' E R → Type _}
 end iTree'
 
 end StrongBisimulation
+
+/-
+
+Defining weak bisimulation is done similarly to how strong bisimulation
+worked in our previous usecase. The only difference is in how we define
+`RelOverObs`, which now skips over `tau` nodes. 
+
+One needs to be careful in how these tau nodes are skipped though. If
+both `iTree`s being observed have `tau` nodes, then it's always safe to
+skip then both. However, one must take care of only ever skipping a
+finite number of `tau` nodes from the left or right iTrees before
+processing a node of the other right or left iTree respectively. 
+Otherwise, one would be able to equate `iTree.loop` with `iTree.ret v`
+by inifinitely skipping the `tau` nodes of `iTree.loop`.
+
+-/
+
+section WeakBisimulation
+
+variable {E : Type quest → Type resp} {R : Type ret}
+
+/-
+  NOTE: For `drop_left` and `drop_right` to work nicely, we need to be
+  able to confuse `Obs E R (iTree E R)` and `iTree E R`. In the end,
+  we want to postulate
+      RelOverObsUpToTau s r it₁ it₂ → RelOverObsUpToTau s r (.tau it₁) it₂
+      RelOverObsUpToTau s r it₁ it₂ → RelOverObsUpToTau s r it₁ (.tau it₂)
+  But then we have `it₂ : Obs E R (iTree E R)` from the hypothesis and 
+  `it₂ : iTree E R` from the `.tau` application.
+
+  This wouldn't be an issue if we used `iTree'`, since then we can drop `Obs`
+  altogether and just use the custom eliminator we just defined. However, I
+  would like to keep from using that for now since I'm not convinced on how
+  `Quotient.bubbleUp` was defined.
+
+  We can circunvent this by explicitly calling `unfold` in the recursive call.
+  This is leaking a bit the abstraction of our `WeakBisim`, which is just a
+  call to `.unfold` of a `RelOverObsUpToTau` using `WeakBisim` itself 
+  coinductively, but we can revisit the formalization later to clean it up.
+-/
+
+inductive RelOverObsUpToTau 
+  (s : iTree E R₁ → iTree E R₂ → Prop)
+  (r : R₁ → R₂ → Prop) : Obs E R₁ (iTree E R₁) → Obs E R₂ (iTree E R₂) → Prop  where
+  -- Same as RelOverObs
+  | ret v₁ v₂ : r v₁ v₂ → RelOverObsUpToTau s r (.ret v₁) (.ret v₂)
+  | tau it₁ it₂ : s it₁ it₂ → RelOverObsUpToTau s r (.tau it₁) (.tau it₂)
+  | vis A (ev : E A) k₁ k₂ : (∀ x, s (k₁ x) (k₂ x)) → RelOverObsUpToTau s r (.vis ev k₁) (.vis ev k₂)
+  -- New additions!
+  | drop_left it₁ (it₂ : iTree E R₂) :
+      RelOverObsUpToTau s r it₁.unfold it₂.unfold → RelOverObsUpToTau s r (.tau it₁) it₂.unfold
+  | drop_right (it₁ : iTree E R₁) it₂ :
+      RelOverObsUpToTau s r it₁.unfold it₂.unfold → RelOverObsUpToTau s r it₁.unfold (.tau it₂)
+
+def RelOverObsUpToTau.mono
+  {s s' : iTree E R₁ → iTree E R₂ → Prop}
+  {r r' : R₁ → R₂ → Prop}
+  (ss' : ∀ {i i'}, s i i' → s' i i')
+  (rr' : ∀ {v v'}, r v v' → r' v v') {o o'} : 
+    RelOverObsUpToTau s r o o' →  RelOverObsUpToTau s' r' o o'
+  -- Same as RelOverObs
+  | ret v₁ v₂ h => 
+    .ret v₁ v₂ (rr' h)
+  | tau it₁ it₂ it₁it₂ => 
+    .tau it₁ it₂ (ss' it₁it₂)
+  | vis A ev k₁ k₂ hk =>
+    .vis A ev k₁ k₂ (ss' <| hk ·)
+  -- New additions!
+  | drop_left it₁ it₂ h => 
+    .drop_left it₁ it₂ <| mono ss' rr' h
+  | drop_right it₁ it₂ h => 
+    .drop_right it₁ it₂ <| mono ss' rr' h
+
+@[refl]
+def RelOverObsUpToTau.refl 
+  {s : iTree E R → iTree E R → Prop} [Std.Refl s]
+  {r : R → R → Prop} [Std.Refl r] :
+    ∀ o, RelOverObsUpToTau s r o o
+  | .ret v => .ret v v (Std.Refl.refl _)
+  | .tau it => 
+    .tau it it (Std.Refl.refl _)
+  | .vis ev k =>
+    .vis _ ev k k (Std.Refl.refl <| k ·)
+
+@[symm]
+def RelOverObsUpToTau.symm
+  {s : iTree E R → iTree E R → Prop} [Std.Symm s]
+  {r : R → R → Prop} [Std.Symm r] {o o'} :
+    RelOverObsUpToTau s r o o' → RelOverObsUpToTau s r o' o
+  | ret v₁ v₂ h => 
+    .ret v₂ v₁ (Std.Symm.symm _ _ h)
+  | tau it₁ it₂ it₁it₂ => 
+    .tau it₂ it₁ (Std.Symm.symm _ _ it₁it₂)
+  | vis A ev k₁ k₂ hk =>
+    .vis A ev k₂ k₁ (Std.Symm.symm _ _ <| hk ·)
+  -- New additions!
+  | drop_left it₁ it₂ h => 
+    .drop_right it₂ it₁ h.symm
+  | drop_right it₁ it₂ h => 
+    .drop_left it₂ it₁ h.symm
+
+/- variable {R₁ R₂ R₃ : Type ret} in -/
+/- variable {r₁₂ : R₁ → R₂ → Prop} in -/
+/- variable {r₂₃ : R₂ → R₃ → Prop} in -/
+/- variable {r₁₃ : R₁ → R₃ → Prop} in -/
+/- variable [Trans r₁₂ r₂₃ r₁₃] in -/
+/- variable {s₁₂ : iTree E R₁ → iTree E R₂ → Prop} in -/
+/- variable {s₂₃ : iTree E R₂ → iTree E R₃ → Prop} in -/
+/- variable {s₁₃ : iTree E R₁ → iTree E R₃ → Prop} in -/
+/- variable [Trans s₁₂ s₂₃ s₁₃] in -/
+/- def RelOverObsUpToTau.trans {o₁ o₂ o₃}: -/
+/-     RelOverObsUpToTau s₁₂ r₁₂ o₁ o₂ → -/ 
+/-     RelOverObsUpToTau s₂₃ r₂₃ o₂ o₃ → -/
+/-     RelOverObsUpToTau s₁₃ r₁₃ o₁ o₃ -/
+/-   | ret v₁ v₂ h₁, ret _ _ _ => -/ 
+/-     sorry -/
+/-     /1- .ret v₁ v₃ (Trans.trans h₁ h₂) -1/ -/
+/-   /1- | tau it₁ it₂ it₁it₂, tau _ it₃ it₂it₃ => -1/ -/ 
+/-     /1- .tau it₂ it₁ (Trans.trans it₁it₂ it₂it₃) -1/ -/
+/-   /1- | vis A ev k₁ k₂ hk₁, vis _ _ _ k₃ hk₂ => -1/ -/
+/-     /1- .vis A ev k₂ k₁ (fun x => Trans.trans (hk₁ x) (hk₂ x)) -1/ -/
+/-   -- New additions! -/
+/-   | _, _ => sorry -/
+
+
+
+end WeakBisimulation
 
 end EqualitiesOverITrees
 
