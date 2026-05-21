@@ -1024,14 +1024,16 @@ theorem UpToFiniteTau.trans [Trans s s s]
 
 def WeakBisim (it₁ it₂ : iTree E R ) : Prop :=
   RelOverObs WeakBisim (· = ·) it₁.unfold it₂.unfold
-  ∨ UpToFiniteTau WeakBisim it₁ it₂
+  ∨ UpToFiniteTau (RelOverObs WeakBisim (· = ·) ·.unfold ·.unfold) it₁ it₂
+  -- NOTE: We force syncronization by asking the relation over UpToFiniteTau to
+  -- synchronize the iTrees once. This way we prevent infinite loops
 coinductive_fixpoint monotonicity by
   intro WB WB' WBimp it₁ it₂ WB₁₂
   match WB₁₂ with
   | .inl RO₁₂ =>
     exact Or.inl <| RelOverObs.mono (WBimp _ _) id RO₁₂
   | .inr UTT₁₂ =>
-    exact Or.inr <| UpToFiniteTau.mono (WBimp _ _) UTT₁₂
+    exact Or.inr <| UpToFiniteTau.mono (RelOverObs.mono (WBimp _ _) id) UTT₁₂
 
 namespace WeakBisim
 
@@ -1078,57 +1080,43 @@ def trans (it₁ it₂ : iTree E R) : WeakBisim it₁ it₂ → WeakBisim it₂ 
   apply WeakBisim.coinduct (pred := fun x z => ∃ y , WeakBisim x y ∧ WeakBisim y z) _ _ _ ⟨_, H₁, H₂⟩
   intro it₁ it₃ ⟨it₂, H₁, H₂⟩
   unfold WeakBisim at H₁ H₂
-  -- TODO: This was a bit too easy... Am I proving what I actually want to prove?
-  -- NOTE: I think not! I think this is the wrong version of weak bisimulation!
   match H₁, H₂ with
   | .inl RO₁₂, .inl RO₂₃ =>
     clear H₁ H₂
-    apply Or.inr
-    apply UpToFiniteTau.sync
-    exists it₂
-    constructor
-    · unfold WeakBisim
-      apply Or.inl
-      assumption
-    · unfold WeakBisim
-      apply Or.inl
-      assumption
+    generalize h₁ : it₁.unfold = obs₁ at *
+    generalize h₂ : it₂.unfold = obs₂ at *
+    generalize h₃ : it₃.unfold = obs₃ at *
+    apply Or.inl
+    match RO₁₂, RO₂₃ with
+    | .ret v₁ v₂ H₁, .ret _ v₃ H₂ =>
+      constructor; exact Trans.trans H₁ H₂
+    | .tau it₁ it₂ H₁, .tau _ it₃ H₂ =>
+      constructor; exact ⟨it₂, H₁, H₂⟩
+    | .vis A ev k₁ k₂ H₁, .vis _ _ _ k₃ H₂ =>
+      constructor; intro x; exact ⟨k₂ x, H₁ x, H₂ x⟩
   | .inr UTT₁₂, .inl RO₂₃ =>
     clear H₁ H₂
-    apply Or.inr
-    apply UpToFiniteTau.sync
-    exists it₂
-    constructor
-    · unfold WeakBisim
-      apply Or.inr
-      assumption
-    · unfold WeakBisim
-      apply Or.inl
-      assumption
+    apply Or.inl
+    induction UTT₁₂ with
+    | sync it₁ it₂ Hs₁₂ =>
+      sorry
+    | drop_left it₁ it₁' it₂ Htau₁ UTT₁'₂ =>
+      sorry
+    | drop_right it₁ it₂ it₂' Htau₂ UTT₁₂' =>
+      sorry
   | .inl RO₁₂, .inr UTT₂₃ =>
-    clear H₁ H₂
-    apply Or.inr
-    apply UpToFiniteTau.sync
-    exists it₂
-    constructor
-    · unfold WeakBisim
-      apply Or.inl
-      assumption
-    · unfold WeakBisim
-      apply Or.inr
-      assumption
+    sorry
   | .inr UTT₁₂, .inr UTT₂₃ =>
     clear H₁ H₂
     apply Or.inr
-    apply UpToFiniteTau.sync
-    exists it₂
-    constructor
-    · unfold WeakBisim
-      apply Or.inr
-      assumption
-    · unfold WeakBisim
-      apply Or.inr
-      assumption
+    -- TODO:
+    -- I would like to say that we concat UT₁₂ and UT₂₃,
+    -- but actually we can't because WeakBisim is not
+    -- guaranteed to be transitive yet... So we need to
+    -- replay the `trans` proof again. Room to factorize
+    -- maybe?
+    sorry
+
 
 end WeakBisim
 
