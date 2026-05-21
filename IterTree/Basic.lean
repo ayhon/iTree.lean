@@ -301,7 +301,7 @@ on strong bisimulations first.
 
 section StrongBisimulation
 
-local instance : Std.Refl (Eq (α := α)) where refl := .refl 
+local instance : Std.Refl (Eq (α := α)) where refl := .refl
 local instance : Std.Symm (Eq (α := α)) where symm _ _:= .symm
 
 variable {E : Type quest → Type resp}{R : Type ret}
@@ -319,7 +319,7 @@ which also corresponds with a strong bisimulation.
 
 -- TODO: Generalize `r` over `R₁` and `R₂`
 -- TODO: Allow for relation over events as well
-inductive RelOverObs (s : S₁ → S₂ → Prop) (r : R → R → Prop) : 
+inductive RelOverObs (s : S₁ → S₂ → Prop) (r : R → R → Prop) :
     Obs E R S₁ → Obs E R S₂ → Prop where
   | ret (v₁ v₂ : R) : r v₁ v₂ → RelOverObs s r (.ret v₁) (.ret v₂)
   | tau (it₁ : S₁) (it₂ : S₂) : s it₁ it₂ → RelOverObs s r (.tau it₁) (.tau it₂)
@@ -335,10 +335,10 @@ inductive RelOverObs (s : S₁ → S₂ → Prop) (r : R → R → Prop) :
 /-       s (k₁ s₁) (k₂ (h ▸ s₁)) -/
 /- | _, _ => False -/
 
-theorem RelOverObs.mono (s s' : S₁ → S₂ → Prop) (r r' : R → R → Prop) : 
+theorem RelOverObs.mono {s s' : S₁ → S₂ → Prop} {r r' : R → R → Prop} :
     (∀ {i i'}, s i i' → s' i i') →
     (∀ {v v'}, r v v' → r' v v') →
-     ∀ o (o' : Obs E R S₂), (RelOverObs s r) o o' → (RelOverObs s' r') o o' := 
+     ∀ {o} {o' : Obs E R S₂}, (RelOverObs s r) o o' → (RelOverObs s' r') o o' :=
   fun ss' rr' _ _ => fun
     | .ret v₁ v₂ h => .ret v₁ v₂ (rr' h)
     | .tau it₁ it₂ h => .tau _ _ (ss' h)
@@ -361,7 +361,7 @@ theorem RelOverObs.flip {s : S → S → Prop} {r : R → R → Prop} {o o' : Ob
   propext ⟨flip._mp, flip._mpr⟩
 
 @[refl]
-theorem RelOverObs.refl (s : S → S → Prop) (r : R → R → Prop) [Std.Refl s] [Std.Refl r] : 
+theorem RelOverObs.refl (s : S → S → Prop) (r : R → R → Prop) [Std.Refl s] [Std.Refl r] :
     ∀ (o : Obs E R S), (RelOverObs s r) o o
   | .ret v => .ret v v (Std.Refl.refl v)
   | .tau it => .tau it it (Std.Refl.refl it)
@@ -370,7 +370,7 @@ theorem RelOverObs.refl (s : S → S → Prop) (r : R → R → Prop) [Std.Refl 
 instance [Std.Refl s][Std.Refl r] : Std.Refl (RelOverObs (E := E) (R := R) s r) where refl := .refl s r
 
 @[symm]
-theorem RelOverObs.symm (s : S → S → Prop) (r : R → R → Prop) [Std.Symm s] [Std.Symm r] {o o' : Obs E R S} : 
+theorem RelOverObs.symm (s : S → S → Prop) (r : R → R → Prop) [Std.Symm s] [Std.Symm r] {o o' : Obs E R S} :
     (RelOverObs s r) o o' → (RelOverObs s r) o' o
   | .ret v₁ v₂ h => .ret v₂ v₁ (Std.Symm.symm v₁ v₂ h)
   | .tau it₁ it₂ h => .tau it₂ it₁ (Std.Symm.symm it₁ it₂ h)
@@ -378,10 +378,10 @@ theorem RelOverObs.symm (s : S → S → Prop) (r : R → R → Prop) [Std.Symm 
 
 instance [Std.Symm s][Std.Symm r] : Std.Symm (RelOverObs (E := E) (R := R) s r) where symm _ _ := .symm s r
 
-theorem RelOverObs.trans 
+theorem RelOverObs.trans
   {s₁₂ : S₁ → S₂ → Prop} {s₂₃ : S₂ → S₃ → Prop} {s₁₃ : S₁ → S₃ → Prop}
-  {r : R → R → Prop} 
-  [Trans s₁₂ s₂₃ s₁₃] [Trans r r r] {o₁ o₂ o₃} : 
+  {r : R → R → Prop}
+  [Trans s₁₂ s₂₃ s₁₃] [Trans r r r] {o₁ o₂ o₃} :
     (RelOverObs (E := E) s₁₂ r) o₁ o₂ →
     (RelOverObs (E := E) s₂₃ r) o₂ o₃ →
     (RelOverObs (E := E) s₁₃ r) o₁ o₃
@@ -390,22 +390,21 @@ theorem RelOverObs.trans
   | .vis _ ev k₁ k₂ h₁, .vis _ _ _ k₃ h₂  => .vis _ ev k₁ k₃ (λx↦ Trans.trans (h₁ x) (h₂ x))
 
 instance [Trans r r r][Trans s₁₂ s₂₃ s₁₃] :
-    Trans (RelOverObs (E := E) (R := R) s₁₂ r) 
-          (RelOverObs (E := E) (R := R) s₂₃ r) 
+    Trans (RelOverObs (E := E) (R := R) s₁₂ r)
+          (RelOverObs (E := E) (R := R) s₂₃ r)
           (RelOverObs (E := E) (R := R) s₁₃ r) where
   trans x y := .trans x y
 
 -- Eqit (r : R → R → Prop) (l r : Bool) [i.e. eutt :0 Eqit (· = ·) true true]
-abbrev StrongBisim (r : R → R → Prop) (it₁ it₂ : iTree E R)  : Prop := 
+abbrev StrongBisim (r : R → R → Prop) (it₁ it₂ : iTree E R)  : Prop :=
   RelOverObs (StrongBisim r) r it₁.unfold it₂.unfold
 coinductive_fixpoint monotonicity
-  fun Rel Rel' Rimp it₁ it₂ H =>
-  RelOverObs.mono Rel' Rel _ _ (Rimp _ _) id it₁.unfold it₂.unfold H
+  fun _ _ Rimp _ _ H => RelOverObs.mono (Rimp _ _) id  H
 
 namespace StrongBisim
 
 def cases {it₁ it₂ : iTree E R} (h : StrongBisim r it₁ it₂) :
-      ∃ obs₁ obs₂, it₁.unfold = obs₁ ∧ it₂.unfold = obs₂ ∧ RelOverObs (StrongBisim r) r obs₁ obs₂ := 
+      ∃ obs₁ obs₂, it₁.unfold = obs₁ ∧ it₂.unfold = obs₂ ∧ RelOverObs (StrongBisim r) r obs₁ obs₂ :=
   ⟨_, _, rfl, rfl, StrongBisim.eq_def .. ▸ h⟩
 
 @[refl]
@@ -424,12 +423,12 @@ theorem symm {it₁ it₂ : iTree E R} [Std.Symm r]: StrongBisim r it₁ it₂ �
   intro start
   apply coinduct r (pred := λ x y ↦ StrongBisim r y x) ?_ _ _ start
   intro it₁ it₂ it₂it₁
-  match it₂it₁.cases with 
-  | ⟨.ret v₁, .ret v₂, h₁, h₂, .ret _ _ h⟩ => 
+  match it₂it₁.cases with
+  | ⟨.ret v₁, .ret v₂, h₁, h₂, .ret _ _ h⟩ =>
     rw [h₁, h₂]; constructor; apply Std.Symm.symm _ _ h
-  | ⟨.tau it₁, .tau it₂, h₁, h₂, .tau _ _ h⟩ => 
+  | ⟨.tau it₁, .tau it₂, h₁, h₂, .tau _ _ h⟩ =>
     rw [h₁, h₂]; constructor; exact h
-  | ⟨.vis ev k₁, .vis _ k₂, h₁, h₂, .vis _ _ _ _ h⟩ => 
+  | ⟨.vis ev k₁, .vis _ k₂, h₁, h₂, .vis _ _ _ _ h⟩ =>
     rw [h₁, h₂]; constructor; exact h
 
 theorem trans {it₁ it₂ it₃ : iTree E R} [Trans r r r]: StrongBisim r it₁ it₂ → StrongBisim r it₂ it₃ → StrongBisim r it₁ it₃ := by
@@ -440,14 +439,14 @@ theorem trans {it₁ it₂ it₃ : iTree E R} [Trans r r r]: StrongBisim r it₁
   generalize h₁ : it₁.unfold = obs₁ at *
   generalize h₂ : it₂.unfold = obs₂ at *
   generalize h₃ : it₃.unfold = obs₃ at *
-  match it₁it₂, it₂it₃ with 
-  | .ret v₁ v₂ H₁, .ret _ v₃ H₂ => 
+  match it₁it₂, it₂it₃ with
+  | .ret v₁ v₂ H₁, .ret _ v₃ H₂ =>
     constructor; exact Trans.trans H₁ H₂
-  | .tau it₁ it₂ H₁, .tau _ it₃ H₂ => 
+  | .tau it₁ it₂ H₁, .tau _ it₃ H₂ =>
     constructor; exact ⟨it₂, H₁, H₂⟩
-  | .vis A ev k₁ k₂ H₁, .vis _ _ _ k₃ H₂ => 
+  | .vis A ev k₁ k₂ H₁, .vis _ _ _ k₃ H₂ =>
     constructor; intro x; exact ⟨k₂ x, H₁ x, H₂ x⟩
-    
+
 instance [Trans r r r] : Trans (StrongBisim (E := E) (R := R) r) (StrongBisim (E := E) (R := R) r) (StrongBisim (E := E) (R := R) r) where trans := StrongBisim.trans
 
 end StrongBisim
@@ -468,14 +467,14 @@ instance : HasEquiv (Obs E R (iTree E R)) where
   Equiv := RelOverObs (· ≈ ·) (· = ·)
 
 def ObsEq.coinduct
-  {it₁ it₂ : iTree E R} 
+  {it₁ it₂ : iTree E R}
   (pred : iTree E R → iTree E R → Prop)
   (baseCase : pred it₁ it₂)
   (progress : ∀ (it₁ it₂ : iTree E R), pred it₁ it₂ → RelOverObs pred (· = ·) it₁.unfold it₂.unfold) :
-    it₁ ≈ it₂ := 
+    it₁ ≈ it₂ :=
   StrongBisim.coinduct (· = ·) pred progress _ _ baseCase
 
-theorem obsEq_unfold {it it' : iTree E R} : 
+theorem obsEq_unfold {it it' : iTree E R} :
     it ≈ it' ↔ it.unfold ≈ it'.unfold :=
   ⟨(StrongBisim.eq_def .. |>.mp ·), (StrongBisim.eq_def .. |>.mpr ·)⟩
 
@@ -496,12 +495,12 @@ private def ObsEq.step_tau_obsEq_self (State : Type _)(curr : State)(step : Stat
   case progress =>
     intro it₁ it₂ ⟨H, HC, Hs⟩
     cases h : it₁.step it₁.curr <;> simp only [h, iTree.unfold, HC, Obs.mapState, Hs]
-    case ret v => 
+    case ret v =>
       constructor; rfl
-    case tau it => 
+    case tau it =>
       constructor
       exists H
-    case vis ev k => 
+    case vis ev k =>
       constructor
       intros
       exists H
@@ -517,7 +516,7 @@ theorem ObsEq.tau_congr {it₁ it₂ : iTree E R} : it₁ ≈ it₂ → (iTree.t
     _ ≈ it₂ := h
     _ ≈ { it₂.tau with curr := .inr it₂.curr } := (step_tau_obsEq_self ..)
 
-def ObsEq.step_vis_obsEq_self 
+def ObsEq.step_vis_obsEq_self
      (ev : E A) (k : A → iTree E R) (a : A) (curr : (k a).State) :
     { curr, step := (k a).step : iTree E R} ≈
     { (iTree.vis ev k) with curr := .inr ⟨a, curr⟩ } := by
@@ -537,12 +536,12 @@ def ObsEq.step_vis_obsEq_self
   case progress =>
     rintro it₁ it₂ ⟨H, HC, Hs⟩
     cases h : it₁.step it₁.curr <;> simp only [h, iTree.unfold, HC, Hs, Obs.mapState]
-    case ret v => 
+    case ret v =>
       constructor; rfl
-    case tau it => 
+    case tau it =>
       constructor
       exists H
-    case vis ev k => 
+    case vis ev k =>
       constructor
       intros
       exists H
@@ -552,13 +551,13 @@ def ObsEq.step_vis_obsEq_self
 -- our states are in the same universe as our inputs? At worst one can just bump
 -- the universe levels.
 def ObsEq.vis_congr {A : Type _} (ev : E A) (k₁ k₂ : A → iTree.{_,_,_,quest} E R) :
-    (∀ a, k₁ a ≈ k₂ a) → iTree.vis ev k₁ ≈ iTree.vis ev k₂ := by 
+    (∀ a, k₁ a ≈ k₂ a) → iTree.vis ev k₁ ≈ iTree.vis ev k₂ := by
   intro Hk
   unfold StrongBisim
   simp [iTree.vis, iTree.unfold]
   constructor
   intro a
-  change ({ iTree.vis ev k₁ with curr := .inr ⟨a, (k₁ a).curr⟩ } ≈ 
+  change ({ iTree.vis ev k₁ with curr := .inr ⟨a, (k₁ a).curr⟩ } ≈
           { iTree.vis ev k₂ with curr := .inr ⟨a, (k₂ a).curr⟩ })
   calc { iTree.vis ev k₁ with curr := .inr ⟨a, (k₁ a).curr⟩ }
     _ ≈ k₁ a := (step_vis_obsEq_self ..).symm
@@ -594,13 +593,13 @@ theorem ObsEq.obsEq_tau_of_unfold_tau {it it': iTree E R} : it.unfold = .tau it'
     case progress =>
       rintro it₁ it₂ ⟨H, Hc, Hs⟩
       cases h : it₁.step it₁.curr <;> simp only [h, iTree.unfold, Hc, Obs.mapState]
-      case ret v => 
+      case ret v =>
         constructor; rfl
-      case tau it => 
+      case tau it =>
         constructor
         exists H
         simp [Hs]
-      case vis ev k => 
+      case vis ev k =>
         constructor
         intros
         exists H
@@ -629,12 +628,12 @@ theorem ObsEq.obsEq_vis_of_unfold_vis {it : iTree E R}{ev : E A} {k}: it.unfold 
     case progress =>
       rintro ⟨c₁, s₁⟩ ⟨c₂, s₂⟩ ⟨H, HC, Hs⟩
       cases h : s₁ c₁ <;> simp only [h, iTree.unfold, HC, Hs, Obs.mapState]
-      case ret v => 
+      case ret v =>
         constructor; rfl
-      case tau it => 
+      case tau it =>
         constructor
         exists H
-      case vis ev k => 
+      case vis ev k =>
         constructor
         intros
         exists H
@@ -673,7 +672,7 @@ def unfold (it' : iTree' E R) : Obs E R (iTree' E R) :=
     it.unfold.mapState iTree'.mk
   ) (by
     intros it₁ it₂ it₁it₂
-    match StrongBisim.cases <| it₁it₂ with 
+    match StrongBisim.cases <| it₁it₂ with
     | ⟨.ret v₁, .ret v₂, h₁, h₂, .ret _ _ h⟩ =>
       simp only [Obs.mapState, h₁, h₂, h]
     | ⟨.tau it₁, .tau it₂, h₁, h₂, .tau _ _ h⟩ =>
@@ -720,10 +719,10 @@ theorem unfold_eq_tau (it' it'₂ : iTree' E R) :
     apply ObsEq.obsEq_tau_of_unfold_tau h₂
 
 /-
-  In the following section, we use an unsafe computable implementation of 
+  In the following section, we use an unsafe computable implementation of
   `Quotient.choice` to be able to define `Quotient.bubbleUp`. I believe
   that this implementation is safe, since the unsafe operation happens
-  inside the creation of another quotient, and therefore cannot be 
+  inside the creation of another quotient, and therefore cannot be
   exploited. This claim has not been checked.
 -/
 section doubious
@@ -748,7 +747,7 @@ def out (it' : iTree' E R) : iTree E R where
     curr := it'
     step := iTree'.unfold
 
-set_option pp.universes true in 
+set_option pp.universes true in
 def vis {A : Type a} {R : Type v}{E : Type a → Type r} (ev : E A) (k' : A → iTree' E R) : iTree' E R :=
   iTree'.mk (iTree.vis ev (out ∘ k'))
 
@@ -838,13 +837,13 @@ end StrongBisimulation
 
 Defining weak bisimulation is done similarly to how strong bisimulation
 worked in our previous usecase. The only difference is in how we define
-`RelOverObs`, which now skips over `tau` nodes. 
+`RelOverObs`, which now skips over `tau` nodes.
 
 One needs to be careful in how these tau nodes are skipped though. If
 both `iTree`s being observed have `tau` nodes, then it's always safe to
 skip then both. However, one must take care of only ever skipping a
 finite number of `tau` nodes from the left or right iTrees before
-processing a node of the other right or left iTree respectively. 
+processing a node of the other right or left iTree respectively.
 Otherwise, one would be able to equate `iTree.loop` with `iTree.ret v`
 by inifinitely skipping the `tau` nodes of `iTree.loop`.
 
@@ -863,7 +862,7 @@ variable {E : Type quest → Type resp} {R : Type ret}
   we want to postulate
       RelOverObsUpToTau s r it₁ it₂ → RelOverObsUpToTau s r (.tau it₁) it₂
       RelOverObsUpToTau s r it₁ it₂ → RelOverObsUpToTau s r it₁ (.tau it₂)
-  But then we have `it₂ : Obs E R (iTree E R)` from the hypothesis and 
+  But then we have `it₂ : Obs E R (iTree E R)` from the hypothesis and
   `it₂ : iTree E R` from the `.tau` application.
 
   This wouldn't be an issue if we used `iTree'`, since then we can drop `Obs`
@@ -873,7 +872,7 @@ variable {E : Type quest → Type resp} {R : Type ret}
 
   We can circunvent this by explicitly calling `unfold` in the recursive call.
   This is leaking a bit the abstraction of our `WeakBisim`, which is just a
-  call to `.unfold` of a `RelOverObsUpToTau` using `WeakBisim` itself 
+  call to `.unfold` of a `RelOverObsUpToTau` using `WeakBisim` itself
   coinductively, but we can revisit the formalization later to clean it up.
 -/
 
@@ -969,7 +968,7 @@ theorem UpToFiniteTau.pushBack [Trans s s s]
     let Hrec := UTTr.pushBack s_inv_left Hs₂'
     drop_right _ _ it₃' Htau₂ Hrec
 
-theorem UpToFiniteTau.inv_right [Trans s s s]
+theorem UpToFiniteTau.inv_right
   -- (s_inv_left : ∀ {it₁ it₁' it₂}, s it₁ it₂ → it₁.unfold = .tau it₁' → ∃ it₂', it₂.unfold = .tau it₂' ∧ s it₁' it₂' )
   (s_inv_right : ∀ {it₁ it₂ it₂'}, s it₁ it₂ → it₂.unfold = .tau it₂' → ∃ it₁', it₁.unfold = .tau it₁' ∧ s it₁' it₂' )
   {it₁ it₂ it₂' : iTree E R} :
@@ -983,7 +982,7 @@ theorem UpToFiniteTau.inv_right [Trans s s s]
     have Heq : it₂'' = it₂' := Obs.tau.inj (E := E) (R := R) (Htau₂ ▸ Htau₂' ▸ rfl)
     Heq ▸ UTTr
 
-theorem UpToFiniteTau.inv_left [Trans s s s]
+theorem UpToFiniteTau.inv_left
   (s_inv_left : ∀ {it₁ it₁' it₂}, s it₁ it₂ → it₁.unfold = .tau it₁' → ∃ it₂', it₂.unfold = .tau it₂' ∧ s it₁' it₂' )
   -- (s_inv_right : ∀ {it₁ it₂ it₂'}, s it₁ it₂ → it₂.unfold = .tau it₂' → ∃ it₁', it₁.unfold = .tau it₁' ∧ s it₁' it₂' )
   {it₁ it₁' it₂ : iTree E R} :
@@ -998,33 +997,28 @@ theorem UpToFiniteTau.inv_left [Trans s s s]
     drop_right _ _ _ Htau₂ (UTTr.inv_left s_inv_left Htau₁)
 
 theorem UpToFiniteTau.trans [Trans s s s]
-  -- TOOD: Are the `s_inv` lemmas what we want?
   (s_inv_left : ∀ {it₁ it₁' it₂}, s it₁ it₂ → it₁.unfold = .tau it₁' → ∃ it₂', it₂.unfold = .tau it₂' ∧ s it₁' it₂' )
   (s_inv_right : ∀ {it₁ it₂ it₂'}, s it₁ it₂ → it₂.unfold = .tau it₂' → ∃ it₁', it₁.unfold = .tau it₁' ∧ s it₁' it₂' )
   {it₁ it₂ it₃ : iTree E R} :
-    UpToFiniteTau s it₁ it₂ → UpToFiniteTau s it₂ it₃ → UpToFiniteTau s it₁ it₃ := by
-  intro UTT₁₂ UTT₂₃
-  induction UTT₁₂ generalizing it₃ with
-  | sync _ _ Hs₁ =>
-    exact UTT₂₃.pushFront s_inv_right Hs₁
-  | drop_left it₁ it₁' it₂ Htau₁ UTT₁'₂ IH =>
-    specialize IH UTT₂₃
-    apply drop_left _ _ _ Htau₁ IH
-  | drop_right it₁ it₂ it₂' Htau₂ UTT₁₂' IH =>
-    cases UTT₂₃ with
-    | sync _ _ Hs₂ =>
-      exact (UpToFiniteTau.drop_right it₁ it₂ it₂' Htau₂ UTT₁₂').pushBack s_inv_left Hs₂
-    | drop_left it₂ it₂'' it₃ Htau₂ UTT₂'₃ =>
-      obtain rfl : it₂' = it₂'' := by grind only
-      apply IH UTT₂'₃
-    | drop_right it₂ it₃ it₃' Htau₃ UTT₂₃' =>
+    UpToFiniteTau s it₁ it₂ → UpToFiniteTau s it₂ it₃ → UpToFiniteTau s it₁ it₃
+  | sync _ _ Hs₁, UTT₂₃ =>
+    UTT₂₃.pushFront s_inv_right Hs₁
+  | drop_left it₁ _it₁' it₂ Htau₁ UTT₁'₂, UTT₂₃ =>
+    let UTT₁'₃ := UTT₁'₂.trans s_inv_left s_inv_right UTT₂₃
+    drop_left _ _ _ Htau₁ UTT₁'₃
+  | UTT₁₂, sync _ _ Hs₂ =>
+      UTT₁₂.pushBack s_inv_left Hs₂
+  | drop_right it₁ it₂ it₂' Htau₂ UTT₁₂', drop_left _ it₂'' _ Htau₂' UTT₂''₃ =>
+      have h : it₂' = it₂'' := Obs.tau.inj (E := E) (R := R) (Htau₂ ▸ Htau₂' ▸ rfl)
+      UTT₁₂'.trans s_inv_left s_inv_right (h ▸ UTT₂''₃)
+  | drop_right it₁ it₂ _it₂' Htau₂ UTT₁₂', drop_right _ it₃ it₃' Htau₃ UTT₂₃' =>
       let UTT₂'₃' := UTT₂₃'.inv_left s_inv_left Htau₂
-      have := IH UTT₂'₃'
-      apply drop_right it₁ it₃ it₃' Htau₃ this
+      let UTT₁₃' := UTT₁₂'.trans s_inv_left s_inv_right  UTT₂'₃'
+      drop_right it₁ it₃ it₃' Htau₃ UTT₁₃'
 
 /-
 
-  Now, to obtain weak bisimulation, we just need to interleave StrongBisim and UpToFiniteTau
+  Now, to obtain weak bisimulation, we "just" need to interleave StrongBisim and UpToFiniteTau
 
 -/
 
@@ -1084,19 +1078,57 @@ def trans (it₁ it₂ : iTree E R) : WeakBisim it₁ it₂ → WeakBisim it₂ 
   apply WeakBisim.coinduct (pred := fun x z => ∃ y , WeakBisim x y ∧ WeakBisim y z) _ _ _ ⟨_, H₁, H₂⟩
   intro it₁ it₃ ⟨it₂, H₁, H₂⟩
   unfold WeakBisim at H₁ H₂
+  -- TODO: This was a bit too easy... Am I proving what I actually want to prove?
+  -- NOTE: I think not! I think this is the wrong version of weak bisimulation!
   match H₁, H₂ with
   | .inl RO₁₂, .inl RO₂₃ =>
-    -- I would like to say `.inl <| RO₁₂.trans RO₂₃`, but actually I can't because we haven't proven that the
-    -- relation is transitive (that's what we're proving rn)
-    -- Maybe if I actually provide a relation that **is** transitive, and which allows me to prove this, it
-    -- would be enough. Might be reason to revisit `TransGen`, `SymmGen` and `ReflGen`.
-    sorry
+    clear H₁ H₂
+    apply Or.inr
+    apply UpToFiniteTau.sync
+    exists it₂
+    constructor
+    · unfold WeakBisim
+      apply Or.inl
+      assumption
+    · unfold WeakBisim
+      apply Or.inl
+      assumption
   | .inr UTT₁₂, .inl RO₂₃ =>
-    sorry
+    clear H₁ H₂
+    apply Or.inr
+    apply UpToFiniteTau.sync
+    exists it₂
+    constructor
+    · unfold WeakBisim
+      apply Or.inr
+      assumption
+    · unfold WeakBisim
+      apply Or.inl
+      assumption
   | .inl RO₁₂, .inr UTT₂₃ =>
-    sorry
+    clear H₁ H₂
+    apply Or.inr
+    apply UpToFiniteTau.sync
+    exists it₂
+    constructor
+    · unfold WeakBisim
+      apply Or.inl
+      assumption
+    · unfold WeakBisim
+      apply Or.inr
+      assumption
   | .inr UTT₁₂, .inr UTT₂₃ =>
-    sorry
+    clear H₁ H₂
+    apply Or.inr
+    apply UpToFiniteTau.sync
+    exists it₂
+    constructor
+    · unfold WeakBisim
+      apply Or.inr
+      assumption
+    · unfold WeakBisim
+      apply Or.inr
+      assumption
 
 end WeakBisim
 
