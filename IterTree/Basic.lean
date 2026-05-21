@@ -1,3 +1,5 @@
+import IterTree.QuotientTrick
+
 namespace IterTree
 
 /-
@@ -223,7 +225,8 @@ def tau.{s} (it : iTree.{_,_,_,s} E R) : iTree E R where
 
 end iTree
 
-def Obs.toITree : Obs E R (iTree E R) → iTree E R
+@[coe]
+abbrev Obs.toITree : Obs E R (iTree E R) → iTree E R
 | .tau it => iTree.tau it
 | .vis ev k => iTree.vis ev k
 | .ret v => iTree.ret v
@@ -341,6 +344,22 @@ theorem RelOverObs.mono (s s' : S₁ → S₂ → Prop) (r r' : R → R → Prop
     | .tau it₁ it₂ h => .tau _ _ (ss' h)
     | .vis A ev k₁ k₂ h => .vis A ev k₁ k₂ (ss' <| h ·)
 
+theorem RelOverObs.flip._mp {s : S → S → Prop} {r : R → R → Prop} {o o' : Obs E R S} :
+    RelOverObs s r o o' → flip (RelOverObs (flip s) (flip r)) o o'
+  | .ret v₁ v₂ h => .ret v₂ v₁ h
+  | .tau it₁ it₂ h => .tau it₂ it₁ h
+  | .vis A ev k₁ k₂ h => .vis A ev k₂ k₁ h
+
+theorem RelOverObs.flip._mpr {s : S → S → Prop} {r : R → R → Prop} {o o' : Obs E R S} :
+    flip (RelOverObs (flip s) (flip r)) o o' → RelOverObs s r o o'
+  | .ret v₁ v₂ h => .ret v₂ v₁ h
+  | .tau it₁ it₂ h => .tau it₂ it₁ h
+  | .vis A ev k₁ k₂ h => .vis A ev k₂ k₁ h
+
+theorem RelOverObs.flip {s : S → S → Prop} {r : R → R → Prop} {o o' : Obs E R S} :
+    flip (RelOverObs (flip s) (flip r)) o o' = RelOverObs s r o o' :=
+  propext ⟨flip._mp, flip._mpr⟩
+
 @[refl]
 theorem RelOverObs.refl (s : S → S → Prop) (r : R → R → Prop) [Std.Refl s] [Std.Refl r] : 
     ∀ (o : Obs E R S), (RelOverObs s r) o o
@@ -437,6 +456,13 @@ abbrev ObsEq : iTree E R → iTree E R → Prop := StrongBisim (· = ·)
 
 instance : HasEquiv (iTree E R) where
   Equiv := ObsEq
+
+def ObsEq.refl {it : iTree E R} : it ≈ it := StrongBisim.refl
+def ObsEq.symm {it₁ it₂ : iTree E R} : it₁ ≈ it₂ → it₂ ≈ it₁ := StrongBisim.symm
+def ObsEq.trans {it₁ it₂ it₃ : iTree E R} : it₁ ≈ it₂ → it₂ ≈ it₃  → it₁ ≈ it₃ := StrongBisim.trans
+def ObsEq.cases {it₁ it₂ : iTree E R} (h : it₁ ≈ it₂) :
+      ∃ obs₁ obs₂, it₁.unfold = obs₁ ∧ it₂.unfold = obs₂ ∧ RelOverObs (· ≈ ·) (· = ·) obs₁ obs₂ :=
+  StrongBisim.cases h
 
 instance : HasEquiv (Obs E R (iTree E R)) where
   Equiv := RelOverObs (· ≈ ·) (· = ·)
@@ -702,48 +728,11 @@ theorem unfold_eq_tau (it' it'₂ : iTree' E R) :
 -/
 section doubious
 
--- Taken from Mathlib
-instance piSetoid {ι : Sort _} {α : ι → Sort _} [∀ i, Setoid (α i)] : Setoid (∀ i, α i) where
-  r a b := ∀ i, a i ≈ b i
-  iseqv := ⟨fun _ _ ↦ Setoid.refl _,
-            fun h _ ↦ Setoid.symm (h _),
-            fun h₁ h₂ _ ↦ Setoid.trans (h₁ _) (h₂ _)⟩
-
--- Taken from Mathlib
-unsafe def _root_.Quot.unquot {r : α → α → Prop} : Quot r → α :=
-  cast lcProof
-
-unsafe
-def Quotient.bubbleUpUnsafe {X A : Type _}{s : Setoid X}(f : A → Quotient s) : Quotient (piSetoid : Setoid (A → X)) :=
-  .mk (_) (fun i ↦ (f i).unquot)
-
--- Taken from Mathlib
-noncomputable def _root_.Quot.out {r : α → α → Prop} (q : Quot r) : α :=
-  Classical.choose (Quot.exists_rep q)
-
--- Taken from Mathlib
-@[simp]
-theorem _root_.Quot.out_eq {r : α → α → Prop} (q : Quot r) : Quot.mk r q.out = q :=
-  Classical.choose_spec (Quot.exists_rep q)
-
-noncomputable def _root_.Quotient.choice {ι : Type _} {α : ι → Type _} {S : ∀ i, Setoid (α i)}
-    (f : ∀ i, Quotient (S i)) :
-    @Quotient (∀ i, α i) (by infer_instance) :=
-  .mk _ (fun i ↦ (f i).out)
-
-@[implemented_by Quotient.bubbleUpUnsafe]
-def _root_.Quotient.bubbleUp{X A : Type _}{s : Setoid X}(f : A → Quotient s) : Quotient (piSetoid : Setoid (A → X)) :=
-  Quotient.choice (ι := A) (α := λ_↦X) (S := λ_↦s) f
-
-def vis {A : Type a} {R : Type _}{E : Type a → Type _} (ev : E A) (k' : A → iTree' E R) : iTree' E R :=
-  (Quotient.bubbleUp k').lift (.mk <| iTree.vis ev ·) (
-    fun k₁ k₂ k₁k₂ =>
-    Quotient.sound <| by
-    apply ObsEq.vis_congr
-    intro a
-    specialize k₁k₂ a
-    assumption 
-  )
+-- def vis {A : Type a} {R : Type _}{E : Type a → Type _} (ev : E A) (k' : A → iTree' E R) : iTree' E R :=
+--   (Dubious.Quotient.bubbleUp k').lift (.mk <| iTree.vis ev ·) (
+--     fun k₁ k₂ k₁k₂ =>
+--     Quotient.sound <| ObsEq.vis_congr _ _ _ <| fun a => by apply k₁k₂ a
+--   )
 
 end doubious
 
@@ -753,7 +742,7 @@ end doubious
   the issue that it bumps the universe levels, and therefore doesn't
   seem to be usable to define a custom eliminator for `iTree'`.
 -/
-namespace LessDoubiousVisDefinition
+section LessDoubiousVisDefinition
 -- picks an element out of the quotient, but bumps up the universes
 def out (it' : iTree' E R) : iTree E R where
     curr := it'
@@ -781,65 +770,65 @@ theorem tau_mk_eq_mk_tau (it : iTree E R) :
   apply Quotient.sound
   apply StrongBisim.refl
 
-theorem vis_mk_eq_mk_vis (ev : E A) (k : A → iTree E R) :
-    iTree'.vis ev (.mk ∘ k) = iTree'.mk (iTree.vis ev k) := by
-  refine Quotient.sound ?_
-  apply ObsEq.vis_congr
-  intro a
-  apply Quotient.exact
-  simp [Quotient.mk, Quot.out_eq, iTree'.mk]
+-- theorem vis_mk_eq_mk_vis (ev : E A) (k : A → iTree E R) :
+--     iTree'.vis ev (.mk ∘ k) = iTree'.mk (iTree.vis ev k) := by
+--   refine Quotient.sound ?_
+--   apply ObsEq.vis_congr
+--   intro a
+--   apply Quotient.exact
+--   simp [Quotient.mk, Quot.out_eq, iTree'.mk]
 
--- Custom eliminator for `iTree'` in `Prop`
-@[cases_eliminator]
-def ind {R : Type r}{E : Type a → Type e} {motive : iTree' E R → Prop}
-  (ret : (v : R) → motive (.ret v))
-  (vis : ∀ {A : Type a} (ev : E A) (k : A → iTree' E R), motive (iTree'.vis ev k))
-  (tau : (it : iTree' E R) → motive (.tau it)) :
-    ∀ (it' : iTree' E R), motive it' := fun it' => by
-  apply Quotient.ind (q := it'); intro it
-  change motive (iTree'.mk it)
-  apply it.obsEqElim
-  case inv => 
-    intro it₁ it₂ it₁it₂ mit₂
-    unfold mk
-    exact Quotient.sound it₁it₂ ▸ mit₂
-  case ret =>
-    intro v
-    simp [←ret_eq_mk_ret]
-    apply ret
-  case tau =>
-    intro it₂
-    simp [←tau_mk_eq_mk_tau it₂]
-    apply tau
-  case vis ev k =>
-    intro A ev k
-    simp [←vis_mk_eq_mk_vis ev k]
-    apply vis
+-- -- Custom eliminator for `iTree'` in `Prop`
+-- @[cases_eliminator]
+-- def ind {R : Type r}{E : Type a → Type e} {motive : iTree' E R → Prop}
+--   (ret : (v : R) → motive (.ret v))
+--   (vis : ∀ {A : Type a} (ev : E A) (k : A → iTree' E R), motive (iTree'.vis ev k))
+--   (tau : (it : iTree' E R) → motive (.tau it)) :
+--     ∀ (it' : iTree' E R), motive it' := fun it' => by
+--   apply Quotient.ind (q := it'); intro it
+--   change motive (iTree'.mk it)
+--   apply it.obsEqElim
+--   case inv =>
+--     intro it₁ it₂ it₁it₂ mit₂
+--     unfold mk
+--     exact Quotient.sound it₁it₂ ▸ mit₂
+--   case ret =>
+--     intro v
+--     simp [←ret_eq_mk_ret]
+--     apply ret
+--   case tau =>
+--     intro it₂
+--     simp [←tau_mk_eq_mk_tau it₂]
+--     apply tau
+--   case vis ev k =>
+--     intro A ev k
+--     simp [←vis_mk_eq_mk_vis ev k]
+--     apply vis
 
--- Could we define this elimination principle on motives not in `Prop`?
-def elim {R : Type r}{E : Type a → Type e} {motive : iTree' E R → Type _}
-  (ret : (v : R) → motive (.ret v))
-  (vis : ∀ {A : Type a} (ev : E A) (k : A → iTree' E R), motive (iTree'.vis ev k))
-  (tau : (it : iTree' E R) → motive (.tau it)) :
-    ∀ (it' : iTree' E R), motive it' := fun it' => by
-  apply it'.rec (s := (instSetoid (E := E) (R := R))) (motive := motive)
-  case f =>
-    intro it
-    apply it.obsEqElim
-    case inv => 
-      intro it₁ it₂ it₁it₂ mit₂
-      exact Quotient.sound it₁it₂ ▸ mit₂
-    case ret =>
-      intro v
-      sorry
-    case tau =>
-      sorry
-    case vis =>
-      sorry
-  case h =>
-    intro it₁ it₂ it₁it₂
-    simp
-    sorry
+-- -- Could we define this elimination principle on motives not in `Prop`?
+-- def elim {R : Type r}{E : Type a → Type e} {motive : iTree' E R → Type _}
+--   (ret : (v : R) → motive (.ret v))
+--   (vis : ∀ {A : Type a} (ev : E A) (k : A → iTree' E R), motive (iTree'.vis ev k))
+--   (tau : (it : iTree' E R) → motive (.tau it)) :
+--     ∀ (it' : iTree' E R), motive it' := fun it' => by
+--   apply it'.rec (s := (instSetoid (E := E) (R := R))) (motive := motive)
+--   case f =>
+--     intro it
+--     apply it.obsEqElim
+--     case inv =>
+--       intro it₁ it₂ it₁it₂ mit₂
+--       exact Quotient.sound it₁it₂ ▸ mit₂
+--     case ret =>
+--       intro v
+--       sorry
+--     case tau =>
+--       sorry
+--     case vis =>
+--       sorry
+--   case h =>
+--     intro it₁ it₂ it₁it₂
+--     simp
+--     sorry
 
 end iTree'
 
@@ -863,6 +852,9 @@ by inifinitely skipping the `tau` nodes of `iTree.loop`.
 
 section WeakBisimulation
 
+local instance : Std.Refl (Eq (α := α)) where refl := .refl
+local instance : Std.Symm (Eq (α := α)) where symm _ _:= .symm
+
 variable {E : Type quest → Type resp} {R : Type ret}
 
 /-
@@ -885,94 +877,231 @@ variable {E : Type quest → Type resp} {R : Type ret}
   coinductively, but we can revisit the formalization later to clean it up.
 -/
 
-inductive RelOverObsUpToTau 
-  (s : iTree E R₁ → iTree E R₂ → Prop)
-  (r : R₁ → R₂ → Prop) : Obs E R₁ (iTree E R₁) → Obs E R₂ (iTree E R₂) → Prop  where
-  -- Same as RelOverObs
-  | ret v₁ v₂ : r v₁ v₂ → RelOverObsUpToTau s r (.ret v₁) (.ret v₂)
-  | tau it₁ it₂ : s it₁ it₂ → RelOverObsUpToTau s r (.tau it₁) (.tau it₂)
-  | vis A (ev : E A) k₁ k₂ : (∀ x, s (k₁ x) (k₂ x)) → RelOverObsUpToTau s r (.vis ev k₁) (.vis ev k₂)
-  -- New additions!
-  | drop_left it₁ (it₂ : iTree E R₂) :
-      RelOverObsUpToTau s r it₁.unfold it₂.unfold → RelOverObsUpToTau s r (.tau it₁) it₂.unfold
-  | drop_right (it₁ : iTree E R₁) it₂ :
-      RelOverObsUpToTau s r it₁.unfold it₂.unfold → RelOverObsUpToTau s r it₁.unfold (.tau it₂)
+inductive UpToFiniteTau (s : iTree E R → iTree E R →  Prop) :
+    iTree E R → iTree E R → Prop where
+  | sync it₁ it₂ : s it₁ it₂ → UpToFiniteTau s it₁ it₂
+  | drop_left it₁ it₁' it₂ :
+    it₁.unfold = .tau it₁' →
+    UpToFiniteTau s it₁' it₂ →
+    UpToFiniteTau s it₁ it₂
+  | drop_right it₁ it₂ it₂' :
+    it₂.unfold = .tau it₂' →
+    UpToFiniteTau s it₁ it₂' →
+    UpToFiniteTau s it₁ it₂
 
-def RelOverObsUpToTau.mono
-  {s s' : iTree E R₁ → iTree E R₂ → Prop}
-  {r r' : R₁ → R₂ → Prop}
-  (ss' : ∀ {i i'}, s i i' → s' i i')
-  (rr' : ∀ {v v'}, r v v' → r' v v') {o o'} : 
-    RelOverObsUpToTau s r o o' →  RelOverObsUpToTau s' r' o o'
-  -- Same as RelOverObs
-  | ret v₁ v₂ h => 
-    .ret v₁ v₂ (rr' h)
-  | tau it₁ it₂ it₁it₂ => 
-    .tau it₁ it₂ (ss' it₁it₂)
-  | vis A ev k₁ k₂ hk =>
-    .vis A ev k₁ k₂ (ss' <| hk ·)
-  -- New additions!
-  | drop_left it₁ it₂ h => 
-    .drop_left it₁ it₂ <| mono ss' rr' h
-  | drop_right it₁ it₂ h => 
-    .drop_right it₁ it₂ <| mono ss' rr' h
+def UpToFiniteTau.mono {s s' : iTree E R → iTree E R →  Prop}
+  (ss' : ∀{it₁ it₂}, s it₁ it₂ → s' it₁ it₂) {it₁ it₂ : iTree E R} :
+    UpToFiniteTau s it₁ it₂ → UpToFiniteTau s' it₁ it₂
+  | sync it₁ it₂ Hs =>
+    sync it₁ it₂ (ss' Hs)
+  | drop_left it₁ it₁' it₂ Htau₁ UTT₁'₂ =>
+    drop_left it₁ it₁' it₂ Htau₁ (mono ss' UTT₁'₂)
+  | drop_right it₁ it₂ it₂' Htau₂ UTT₁₂' =>
+    drop_right it₁ it₂ it₂' Htau₂ (mono ss' UTT₁₂')
+
+-- Useful if combined with `obsEqElim`
+theorem UpToFiniteTau.sb_inv
+  (s_inv : ∀ {it₁ it₂ it₁' it₂' : iTree E R}, s it₁ it₂ → s it₁' it₂')
+  {it₁ it₂ jt₁ jt₂ : iTree E R} :
+    it₁ ≈ jt₁ →
+    it₂ ≈ jt₂ →
+    UpToFiniteTau s it₁ it₂ →
+    UpToFiniteTau s jt₁ jt₂ := by
+  intro H₁ H₂ ovfts₁₂
+  induction ovfts₁₂ generalizing jt₁ jt₂ with
+  | sync it₁ it₂ Hs =>
+    apply sync
+    apply s_inv Hs
+  | @drop_left it₁ it₁' it₂ Htau Hrec IH =>
+    match H₁.cases with
+    | ⟨.tau it₁'', .tau jt₁', Htau', Hjtau, .tau _ _ H ⟩ =>
+      have H₁' : it₁' ≈ jt₁' := by grind only
+      apply drop_left _ _ _ Hjtau
+      apply IH H₁' H₂
+    | ⟨.vis .., _, H, _, _⟩
+    | ⟨.ret .., _, H, _, _⟩ =>
+      grind only
+  | @drop_right it₁ it₂ it₂' Htau Hrec IH =>
+    match H₂.cases with
+    | ⟨.tau it₂'', .tau jt₂', Htau', Hjtau, .tau _ _ H ⟩ =>
+      have H₂' : it₂' ≈ jt₂' := by grind only
+      apply drop_right _ _ _ Hjtau
+      apply IH H₁ H₂'
+    | ⟨.vis .., _, H, _, _⟩
+    | ⟨.ret .., _, H, _, _⟩ =>
+      grind only
 
 @[refl]
-def RelOverObsUpToTau.refl 
-  {s : iTree E R → iTree E R → Prop} [Std.Refl s]
-  {r : R → R → Prop} [Std.Refl r] :
-    ∀ o, RelOverObsUpToTau s r o o
-  | .ret v => .ret v v (Std.Refl.refl _)
-  | .tau it => 
-    .tau it it (Std.Refl.refl _)
-  | .vis ev k =>
-    .vis _ ev k k (Std.Refl.refl <| k ·)
+theorem UpToFiniteTau.refl [Std.Refl s](it : iTree E R) : UpToFiniteTau s it it :=
+  .sync _ _ (Std.Refl.refl _)
 
 @[symm]
-def RelOverObsUpToTau.symm
-  {s : iTree E R → iTree E R → Prop} [Std.Symm s]
-  {r : R → R → Prop} [Std.Symm r] {o o'} :
-    RelOverObsUpToTau s r o o' → RelOverObsUpToTau s r o' o
-  | ret v₁ v₂ h => 
-    .ret v₂ v₁ (Std.Symm.symm _ _ h)
-  | tau it₁ it₂ it₁it₂ => 
-    .tau it₂ it₁ (Std.Symm.symm _ _ it₁it₂)
-  | vis A ev k₁ k₂ hk =>
-    .vis A ev k₂ k₁ (Std.Symm.symm _ _ <| hk ·)
-  -- New additions!
-  | drop_left it₁ it₂ h => 
-    .drop_right it₂ it₁ h.symm
-  | drop_right it₁ it₂ h => 
-    .drop_left it₂ it₁ h.symm
+theorem UpToFiniteTau.symm [Std.Symm s]{it₁ it₂ : iTree E R} : UpToFiniteTau s it₁ it₂ → UpToFiniteTau s it₂ it₁
+  | sync _ _ H => sync _ _ (Std.Symm.symm _ _ H)
+  | drop_left _ _ _ Htau UTTl => drop_right _ _ _ Htau UTTl.symm
+  | drop_right _ _ _ Htau UTTr => drop_left _ _ _ Htau UTTr.symm
 
-/- variable {R₁ R₂ R₃ : Type ret} in -/
-/- variable {r₁₂ : R₁ → R₂ → Prop} in -/
-/- variable {r₂₃ : R₂ → R₃ → Prop} in -/
-/- variable {r₁₃ : R₁ → R₃ → Prop} in -/
-/- variable [Trans r₁₂ r₂₃ r₁₃] in -/
-/- variable {s₁₂ : iTree E R₁ → iTree E R₂ → Prop} in -/
-/- variable {s₂₃ : iTree E R₂ → iTree E R₃ → Prop} in -/
-/- variable {s₁₃ : iTree E R₁ → iTree E R₃ → Prop} in -/
-/- variable [Trans s₁₂ s₂₃ s₁₃] in -/
-/- def RelOverObsUpToTau.trans {o₁ o₂ o₃}: -/
-/-     RelOverObsUpToTau s₁₂ r₁₂ o₁ o₂ → -/ 
-/-     RelOverObsUpToTau s₂₃ r₂₃ o₂ o₃ → -/
-/-     RelOverObsUpToTau s₁₃ r₁₃ o₁ o₃ -/
-/-   | ret v₁ v₂ h₁, ret _ _ _ => -/ 
-/-     sorry -/
-/-     /1- .ret v₁ v₃ (Trans.trans h₁ h₂) -1/ -/
-/-   /1- | tau it₁ it₂ it₁it₂, tau _ it₃ it₂it₃ => -1/ -/ 
-/-     /1- .tau it₂ it₁ (Trans.trans it₁it₂ it₂it₃) -1/ -/
-/-   /1- | vis A ev k₁ k₂ hk₁, vis _ _ _ k₃ hk₂ => -1/ -/
-/-     /1- .vis A ev k₂ k₁ (fun x => Trans.trans (hk₁ x) (hk₂ x)) -1/ -/
-/-   -- New additions! -/
-/-   | _, _ => sorry -/
+theorem UpToFiniteTau.pushFront [Trans s s s]
+  -- (s_inv_left : ∀ {it₁ it₁' it₂}, s it₁ it₂ → it₁.unfold = .tau it₁' → ∃ it₂', it₂.unfold = .tau it₂' ∧ s it₁' it₂' )
+  (s_inv_right : ∀ {it₁ it₂ it₂'}, s it₁ it₂ → it₂.unfold = .tau it₂' → ∃ it₁', it₁.unfold = .tau it₁' ∧ s it₁' it₂' )
+  {it₁ it₂ it₃ : iTree E R} :
+    s it₁ it₂ → UpToFiniteTau s it₂ it₃ → UpToFiniteTau s it₁ it₃
+  | Hs₁, sync _ _ Hs₂ => sync _ _ (Trans.trans Hs₁ Hs₂)
+  | Hs₁, drop_left _ _it₂' _ Htau UTTl =>
+    let ⟨it₁', Htau₁, Hs₁'⟩ := s_inv_right Hs₁ Htau
+    let Hrec := UTTl.pushFront s_inv_right Hs₁'
+    drop_left it₁ it₁' it₃ Htau₁ Hrec
+  | Hs₁, drop_right _ _ it₃'  Htau UTTr =>
+    let Hrec := UTTr.pushFront s_inv_right Hs₁
+    drop_right _ _ it₃' Htau Hrec
 
+theorem UpToFiniteTau.pushBack [Trans s s s]
+  (s_inv_left : ∀ {it₁ it₁' it₂}, s it₁ it₂ → it₁.unfold = .tau it₁' → ∃ it₂', it₂.unfold = .tau it₂' ∧ s it₁' it₂' )
+  -- (s_inv_right : ∀ {it₁ it₂ it₂'}, s it₁ it₂ → it₂.unfold = .tau it₂' → ∃ it₁', it₁.unfold = .tau it₁' ∧ s it₁' it₂' )
+  {it₁ it₂ it₃ : iTree E R} :
+    UpToFiniteTau s it₁ it₂ → s it₂ it₃ → UpToFiniteTau s it₁ it₃
+  | sync _ _ Hs₁, Hs₂ => sync _ _ (Trans.trans Hs₁ Hs₂)
+  | drop_left _ it₁' _ Htau UTTl, Hs₂ =>
+    let Hrec := UTTl.pushBack s_inv_left Hs₂
+    drop_left _ it₁' _ Htau Hrec
+  | drop_right _ _ _it₂'  Htau UTTr, Hs₂=>
+    let ⟨it₃', Htau₂, Hs₂'⟩ := s_inv_left Hs₂ Htau
+    let Hrec := UTTr.pushBack s_inv_left Hs₂'
+    drop_right _ _ it₃' Htau₂ Hrec
 
+theorem UpToFiniteTau.inv_right [Trans s s s]
+  -- (s_inv_left : ∀ {it₁ it₁' it₂}, s it₁ it₂ → it₁.unfold = .tau it₁' → ∃ it₂', it₂.unfold = .tau it₂' ∧ s it₁' it₂' )
+  (s_inv_right : ∀ {it₁ it₂ it₂'}, s it₁ it₂ → it₂.unfold = .tau it₂' → ∃ it₁', it₁.unfold = .tau it₁' ∧ s it₁' it₂' )
+  {it₁ it₂ it₂' : iTree E R} :
+    UpToFiniteTau s it₁ it₂ → it₂.unfold = .tau it₂' → UpToFiniteTau s it₁ it₂'
+  | sync _ _ Hs, Htau₂ =>
+    let ⟨_it₁', Htau₁, Hs'⟩ := s_inv_right Hs Htau₂
+    drop_left _ _ _ Htau₁ (sync _ _ Hs')
+  | drop_left it₁ _it₁' it₂ Htau₁ UTTl, Htau₂ =>
+    drop_left _ _ _ Htau₁ (UTTl.inv_right s_inv_right Htau₂)
+  | drop_right it₁ _ it₂'' Htau₂' UTTr, Htau₂ =>
+    have Heq : it₂'' = it₂' := Obs.tau.inj (E := E) (R := R) (Htau₂ ▸ Htau₂' ▸ rfl)
+    Heq ▸ UTTr
+
+theorem UpToFiniteTau.inv_left [Trans s s s]
+  (s_inv_left : ∀ {it₁ it₁' it₂}, s it₁ it₂ → it₁.unfold = .tau it₁' → ∃ it₂', it₂.unfold = .tau it₂' ∧ s it₁' it₂' )
+  -- (s_inv_right : ∀ {it₁ it₂ it₂'}, s it₁ it₂ → it₂.unfold = .tau it₂' → ∃ it₁', it₁.unfold = .tau it₁' ∧ s it₁' it₂' )
+  {it₁ it₁' it₂ : iTree E R} :
+    UpToFiniteTau s it₁ it₂ → it₁.unfold = .tau it₁' → UpToFiniteTau s it₁' it₂
+  | sync _ _ Hs, Htau₁ =>
+    let ⟨_it₂', Htau₂, Hs'⟩ := s_inv_left Hs Htau₁
+    drop_right _ _ _ Htau₂ (sync _ _ Hs')
+  | drop_left it₁ it₁'' it₂ Htau₁' UTTl, Htau₁ =>
+    have Heq : it₁'' = it₁' := Obs.tau.inj (E := E) (R := R) (Htau₁ ▸ Htau₁' ▸ rfl)
+    Heq ▸ UTTl
+  | drop_right it₁ _ _it₂' Htau₂ UTTr, Htau₁ =>
+    drop_right _ _ _ Htau₂ (UTTr.inv_left s_inv_left Htau₁)
+
+theorem UpToFiniteTau.trans [Trans s s s]
+  -- TOOD: Are the `s_inv` lemmas what we want?
+  (s_inv_left : ∀ {it₁ it₁' it₂}, s it₁ it₂ → it₁.unfold = .tau it₁' → ∃ it₂', it₂.unfold = .tau it₂' ∧ s it₁' it₂' )
+  (s_inv_right : ∀ {it₁ it₂ it₂'}, s it₁ it₂ → it₂.unfold = .tau it₂' → ∃ it₁', it₁.unfold = .tau it₁' ∧ s it₁' it₂' )
+  {it₁ it₂ it₃ : iTree E R} :
+    UpToFiniteTau s it₁ it₂ → UpToFiniteTau s it₂ it₃ → UpToFiniteTau s it₁ it₃ := by
+  intro UTT₁₂ UTT₂₃
+  induction UTT₁₂ generalizing it₃ with
+  | sync _ _ Hs₁ =>
+    exact UTT₂₃.pushFront s_inv_right Hs₁
+  | drop_left it₁ it₁' it₂ Htau₁ UTT₁'₂ IH =>
+    specialize IH UTT₂₃
+    apply drop_left _ _ _ Htau₁ IH
+  | drop_right it₁ it₂ it₂' Htau₂ UTT₁₂' IH =>
+    cases UTT₂₃ with
+    | sync _ _ Hs₂ =>
+      exact (UpToFiniteTau.drop_right it₁ it₂ it₂' Htau₂ UTT₁₂').pushBack s_inv_left Hs₂
+    | drop_left it₂ it₂'' it₃ Htau₂ UTT₂'₃ =>
+      obtain rfl : it₂' = it₂'' := by grind only
+      apply IH UTT₂'₃
+    | drop_right it₂ it₃ it₃' Htau₃ UTT₂₃' =>
+      let UTT₂'₃' := UTT₂₃'.inv_left s_inv_left Htau₂
+      have := IH UTT₂'₃'
+      apply drop_right it₁ it₃ it₃' Htau₃ this
+
+/-
+
+  Now, to obtain weak bisimulation, we just need to interleave StrongBisim and UpToFiniteTau
+
+-/
+
+def WeakBisim (it₁ it₂ : iTree E R ) : Prop :=
+  RelOverObs WeakBisim (· = ·) it₁.unfold it₂.unfold
+  ∨ UpToFiniteTau WeakBisim it₁ it₂
+coinductive_fixpoint monotonicity by
+  intro WB WB' WBimp it₁ it₂ WB₁₂
+  match WB₁₂ with
+  | .inl RO₁₂ =>
+    exact Or.inl <| RelOverObs.mono (WBimp _ _) id RO₁₂
+  | .inr UTT₁₂ =>
+    exact Or.inr <| UpToFiniteTau.mono (WBimp _ _) UTT₁₂
+
+namespace WeakBisim
+
+@[refl]
+def refl (it : iTree E R) : WeakBisim it it := by
+  apply WeakBisim.coinduct (pred := (· = ·)) _ _ _ rfl
+  intro it₁ it₂ rfl
+  apply Or.inl <| Std.Refl.refl _
+
+@[symm]
+def symm (it₁ it₂ : iTree E R) : WeakBisim it₁ it₂ → WeakBisim it₂ it₁ := by
+  intro H
+  apply WeakBisim.coinduct (pred := flip WeakBisim) _ _ _ H
+  intro it₁ it₂ H
+  unfold flip WeakBisim at H
+  match H with
+  | .inl RO₁₂ =>
+    apply Or.inl
+    -- Can't apply RelOverObs.flip for some reason?
+    generalize h₁ : it₁.unfold = obs₁
+    generalize h₂ : it₂.unfold = obs₂
+    rewrite [h₁, h₂] at RO₁₂
+    match RO₁₂ with
+    | .ret v₁ v₂ H =>
+      constructor; exact H.symm
+    | .tau it₁ it₂ H =>
+      constructor; exact H
+    | .vis A ev k₁ k₂ H =>
+      constructor; exact (H ·)
+  | .inr UTT₁₂ =>
+    apply Or.inr
+    clear H
+    -- TODO: I would like to extract this proof into what is now `UpToFiniteTau.symm`
+    induction UTT₁₂ with
+    | sync _ _ H =>
+      exact UpToFiniteTau.sync _ _ H
+    | drop_left _ _ _ Htau _ IH =>
+      exact .drop_right _ _ _ Htau IH
+    | drop_right _ _ _ Htau _ IH =>
+      exact .drop_left _ _ _ Htau IH
+
+def trans (it₁ it₂ : iTree E R) : WeakBisim it₁ it₂ → WeakBisim it₂ it₃ → WeakBisim it₁ it₃ := by
+  intro H₁ H₂
+  apply WeakBisim.coinduct (pred := fun x z => ∃ y , WeakBisim x y ∧ WeakBisim y z) _ _ _ ⟨_, H₁, H₂⟩
+  intro it₁ it₃ ⟨it₂, H₁, H₂⟩
+  unfold WeakBisim at H₁ H₂
+  match H₁, H₂ with
+  | .inl RO₁₂, .inl RO₂₃ =>
+    -- I would like to say `.inl <| RO₁₂.trans RO₂₃`, but actually I can't because we haven't proven that the
+    -- relation is transitive (that's what we're proving rn)
+    -- Maybe if I actually provide a relation that **is** transitive, and which allows me to prove this, it
+    -- would be enough. Might be reason to revisit `TransGen`, `SymmGen` and `ReflGen`.
+    sorry
+  | .inr UTT₁₂, .inl RO₂₃ =>
+    sorry
+  | .inl RO₁₂, .inr UTT₂₃ =>
+    sorry
+  | .inr UTT₁₂, .inr UTT₂₃ =>
+    sorry
+
+end WeakBisim
 
 end WeakBisimulation
 
 end EqualitiesOverITrees
-
 
 end StateMachine
