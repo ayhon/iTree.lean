@@ -852,233 +852,138 @@ by inifinitely skipping the `tau` nodes of `iTree.loop`.
 
 section WeakBisimulation
 
+/-
+  There's various ways in which to express the fact that in a weak
+  bisimulation we allow skipping over a finite amount of tau nodes.
+
+  One option is to define the relation inductively as we have done
+  before.
+
+  Another option is to, instead, define an order between `iTree`s
+  which expresses that one is a "preffix" of the other. Then, we
+  can express that a weak bisimulation can skip over a finite
+  number of taus by relating, not the trees themselves, but trees
+  which are themselves
+-/
+
 local instance : Std.Refl (Eq (α := α)) where refl := .refl
 local instance : Std.Symm (Eq (α := α)) where symm _ _:= .symm
 
 variable {E : Type quest → Type resp} {R : Type ret}
 
-/-
-  NOTE: For `drop_left` and `drop_right` to work nicely, we need to be
-  able to confuse `Obs E R (iTree E R)` and `iTree E R`. In the end,
-  we want to postulate
-      RelOverObsUpToTau s r it₁ it₂ → RelOverObsUpToTau s r (.tau it₁) it₂
-      RelOverObsUpToTau s r it₁ it₂ → RelOverObsUpToTau s r it₁ (.tau it₂)
-  But then we have `it₂ : Obs E R (iTree E R)` from the hypothesis and
-  `it₂ : iTree E R` from the `.tau` application.
+/-- The `IsDelayed` relation induces an order on `iTree`s which
+  share a common finite preffix of `tau` nodes.  -/
+inductive iTree.IsDelayedBy (it : iTree E R) : Nat → iTree E R → Prop where
+  | refl : IsDelayedBy it 0 it
+  | tau n it'' : IsDelayedBy it n it'' → it''.unfold = .tau it' → IsDelayedBy it (n+1) it'
 
-  This wouldn't be an issue if we used `iTree'`, since then we can drop `Obs`
-  altogether and just use the custom eliminator we just defined. However, I
-  would like to keep from using that for now since I'm not convinced on how
-  `Quotient.bubbleUp` was defined.
+namespace iTree.IsDelayedBy
 
-  We can circunvent this by explicitly calling `unfold` in the recursive call.
-  This is leaking a bit the abstraction of our `WeakBisim`, which is just a
-  call to `.unfold` of a `RelOverObsUpToTau` using `WeakBisim` itself
-  coinductively, but we can revisit the formalization later to clean it up.
--/
+theorem add {a b c : iTree E R} : a.IsDelayedBy n b → b.IsDelayedBy m c → a.IsDelayedBy (n+m) c
+  | H, .refl => H
+  | H₁, tau _ b' Hrest Hstep =>
+    tau _ b' (add H₁ Hrest) Hstep
 
-inductive UpToFiniteTau (s : iTree E R → iTree E R →  Prop) :
-    iTree E R → iTree E R → Prop where
-  | sync {it₁ it₂} : s it₁ it₂ → UpToFiniteTau s it₁ it₂
-  | drop_left {it₁ it₂} it₁' :
+theorem split {a c : iTree E R} : a.IsDelayedBy (n + m) c → ∃ b, a.IsDelayedBy n b ∧ b.IsDelayedBy m c := by
+  intro h
+  induction m generalizing n a c with
+  | zero =>
+    refine ⟨c, h, .refl⟩
+  | succ m IH =>
+    simp [←Nat.add_assoc] at h
+    cases h with
+    | tau _ b' Hrest Hstep =>
+      obtain ⟨b, Hfirst, Hthen⟩ := IH Hrest
+      refine ⟨b, Hfirst, tau m b' Hthen Hstep⟩
+
+theorem inj_right {a b c : iTree E R} : a.IsDelayedBy n b → a.IsDelayedBy n c → b = c
+  | .refl, .refl => rfl
+  | .tau _ _ Hrest Hstep, .tau _ _ Hrest₂ Hstep₂ =>
+    let h := inj_right Hrest Hrest₂
+    Obs.tau.inj (R := R) (E := E) <| Hstep ▸ Hstep₂ ▸ congrArg _ h
+
+-- theorem uat n {it it' : iTree E R} it'' : it.unfold = .tau it'' →  it''.IsDelayedBy n it' → it.IsDelayedBy (1 + n) it' :=
+--   fun Hstep Hrest => add (.tau 0 it (.refl) Hstep) Hrest
+
+-- theorem revRec {motive : ∀ {it it' : iTree E R} {n}, it.IsDelayedBy n it' → Prop}
+--   (refl : ∀ it, motive (.refl (it := it)))
+--   (uat : ∀ (it it'' : iTree E R) n it' (Hstep : it.unfold = .tau it'') (Hrest : it''.IsDelayedBy n it'), motive (.uat n _ Hstep Hrest))
+--   {it it' : iTree E R} {n} (h : it.IsDelayedBy n it') :
+--     motive h :=
+--   match n with
+--   | 0 =>
+--     let .refl := h
+--     refl _
+--   | n+1 =>
+--     have ⟨_, .tau _ _ .refl Hstep , Hrest⟩ := split <| Nat.add_comm n 1 ▸ h
+--     let res := uat _ _ n _ Hstep Hrest
+--     by simpa only [Nat.add_comm 1 n] using res
+
+theorem sub (n_m : n ≤ m) {a b c : iTree E R} : a.IsDelayedBy n b → a.IsDelayedBy m c → b.IsDelayedBy (m-n) c := by
+  intro Hab Hac
+  generalize h : m - n = x
+  obtain rfl := Nat.add_comm .. ▸ Nat.eq_add_of_sub_eq n_m h
+  have ⟨b', Hab', Hb'c⟩ := split Hac
+  let .refl _ := inj_right Hab Hab'
+  exact Hb'c
+
+-- theorem min {a b c : iTree E R} : a.IsDelayedBy n b → a.IsDelayedBy m c → ∃ d, (d = b ∨ d = c) ∧ a.IsDelayedBy (n.min m) d := by
+--   grind
+
+end iTree.IsDelayedBy
+
+-- def iTree.IsDelayed (it it' : iTree E R) := ∃ n, it.IsDelayedBy n it'
+inductive iTree.IsDelayed : iTree E R → iTree E R → Prop where
+  | refl {it : iTree E R}: IsDelayed it it
+  | tau {it it' it'' : iTree E R} : it.unfold = .tau it' → it'.IsDelayed it'' → it.IsDelayed it''
+
+namespace iTree.IsDelayed
+
+def min {it it₁ it₂ : iTree E R} : it.IsDelayed it₁ → it.IsDelayed it₂ → it₁.IsDelayed it₂ ∨ it₂.IsDelayed it₁
+  | .refl, h => .inl h
+  | h, .refl => .inr h
+  | tau (it' := it₁') Hstep Hrest, .tau (it' := it₂') Hstep' Hrest' =>
+    have h : it₁' = it₂' := by grind only
+    min Hrest (h ▸ Hrest')
+
+end iTree.IsDelayed
+
+
+inductive UpToFiniteTau (K : iTree E R → iTree E R → Prop) : iTree E R → iTree E R → Prop where
+  | sync it₁ it₂ : K it₁ it₂ → UpToFiniteTau K it₁ it₂
+  | drop_left (it₁ it₂ it₁' : iTree E R) :
     it₁.unfold = .tau it₁' →
-    UpToFiniteTau s it₁' it₂ →
-    UpToFiniteTau s it₁ it₂
-  | drop_right {it₁ it₂} it₂' :
+    UpToFiniteTau K it₁' it₂ →
+    UpToFiniteTau K it₁ it₂
+  | drop_right (it₁ it₂ it₂' : iTree E R) :
     it₂.unfold = .tau it₂' →
-    UpToFiniteTau s it₁ it₂' →
-    UpToFiniteTau s it₁ it₂
+    UpToFiniteTau K it₁ it₂' →
+    UpToFiniteTau K it₁ it₂
 
-def UpToFiniteTau.mono {s s' : iTree E R → iTree E R →  Prop}
-  (ss' : ∀{it₁ it₂}, s it₁ it₂ → s' it₁ it₂) {it₁ it₂ : iTree E R} :
-    UpToFiniteTau s it₁ it₂ → UpToFiniteTau s' it₁ it₂
-  | sync Hs =>
-    sync (ss' Hs)
-  | drop_left it₁' Htau₁ UTT₁'₂ =>
-    drop_left it₁' Htau₁ (mono ss' UTT₁'₂)
-  | drop_right it₂' Htau₂ UTT₁₂' =>
-    drop_right it₂' Htau₂ (mono ss' UTT₁₂')
-
--- Meant to be combined with `obsEqElim`
-theorem UpToFiniteTau.sb_inv
-  (s_inv : ∀ {it₁ it₂ it₁' it₂' : iTree E R}, s it₁ it₂ → s it₁' it₂')
-  {it₁ it₂ jt₁ jt₂ : iTree E R} :
-    it₁ ≈ jt₁ →
-    it₂ ≈ jt₂ →
-    UpToFiniteTau s it₁ it₂ →
-    UpToFiniteTau s jt₁ jt₂ := by
-  intro H₁ H₂ ovfts₁₂
-  induction ovfts₁₂ generalizing jt₁ jt₂ with
-  | sync Hs =>
-    apply sync
-    apply s_inv Hs
-  | drop_left it₁' Htau Hrec IH =>
-    match H₁.cases with
-    | ⟨.tau it₁'', .tau jt₁', Htau', Hjtau, .tau _ _ H ⟩ =>
-      have H₁' : it₁' ≈ jt₁' := by grind only
-      apply drop_left _ Hjtau
-      apply IH H₁' H₂
-    | ⟨.vis .., _, H, _, _⟩
-    | ⟨.ret .., _, H, _, _⟩ =>
-      grind only
-  | drop_right it₂' Htau Hrec IH =>
-    match H₂.cases with
-    | ⟨.tau it₂'', .tau jt₂', Htau', Hjtau, .tau _ _ H ⟩ =>
-      have H₂' : it₂' ≈ jt₂' := by grind only
-      apply drop_right _ Hjtau
-      apply IH H₁ H₂'
-    | ⟨.vis .., _, H, _, _⟩
-    | ⟨.ret .., _, H, _, _⟩ =>
-      grind only
-
-@[refl]
-theorem UpToFiniteTau.refl [Std.Refl s](it : iTree E R) : UpToFiniteTau s it it :=
-  .sync (Std.Refl.refl _)
-
-@[symm]
-theorem UpToFiniteTau.symm [Std.Symm s]{it₁ it₂ : iTree E R} : UpToFiniteTau s it₁ it₂ → UpToFiniteTau s it₂ it₁
-  | sync H => sync (Std.Symm.symm _ _ H)
-  | drop_left _ Htau UTTl => drop_right _ Htau UTTl.symm
-  | drop_right _ Htau UTTr => drop_left _ Htau UTTr.symm
-
-theorem UpToFiniteTau.pushFront [Trans s s s]
-  -- (s_inv_left : ∀ {it₁ it₁' it₂}, s it₁ it₂ → it₁.unfold = .tau it₁' → ∃ it₂', it₂.unfold = .tau it₂' ∧ s it₁' it₂' )
-  (s_inv_right : ∀ {it₁ it₂ it₂'}, s it₁ it₂ → it₂.unfold = .tau it₂' → ∃ it₁', it₁.unfold = .tau it₁' ∧ s it₁' it₂' )
-  {it₁ it₂ it₃ : iTree E R} :
-    s it₁ it₂ → UpToFiniteTau s it₂ it₃ → UpToFiniteTau s it₁ it₃
-  | Hs₁, sync Hs₂ => sync (Trans.trans Hs₁ Hs₂)
-  | Hs₁, drop_left _it₂' Htau UTTl =>
-    let ⟨it₁', Htau₁, Hs₁'⟩ := s_inv_right Hs₁ Htau
-    let Hrec := UTTl.pushFront s_inv_right Hs₁'
-    drop_left it₁' Htau₁ Hrec
-  | Hs₁, drop_right it₃'  Htau UTTr =>
-    let Hrec := UTTr.pushFront s_inv_right Hs₁
-    drop_right it₃' Htau Hrec
-
-theorem UpToFiniteTau.pushBack [Trans s s s]
-  (s_inv_left : ∀ {it₁ it₁' it₂}, s it₁ it₂ → it₁.unfold = .tau it₁' → ∃ it₂', it₂.unfold = .tau it₂' ∧ s it₁' it₂' )
-  -- (s_inv_right : ∀ {it₁ it₂ it₂'}, s it₁ it₂ → it₂.unfold = .tau it₂' → ∃ it₁', it₁.unfold = .tau it₁' ∧ s it₁' it₂' )
-  {it₁ it₂ it₃ : iTree E R} :
-    UpToFiniteTau s it₁ it₂ → s it₂ it₃ → UpToFiniteTau s it₁ it₃
-  | sync Hs₁, Hs₂ => sync (Trans.trans Hs₁ Hs₂)
-  | drop_left it₁' Htau UTTl, Hs₂ =>
-    let Hrec := UTTl.pushBack s_inv_left Hs₂
-    drop_left it₁' Htau Hrec
-  | drop_right _it₂'  Htau UTTr, Hs₂=>
-    let ⟨it₃', Htau₂, Hs₂'⟩ := s_inv_left Hs₂ Htau
-    let Hrec := UTTr.pushBack s_inv_left Hs₂'
-    drop_right it₃' Htau₂ Hrec
-
-theorem UpToFiniteTau.inv_right
-  -- (s_inv_left : ∀ {it₁ it₁' it₂}, s it₁ it₂ → it₁.unfold = .tau it₁' → ∃ it₂', it₂.unfold = .tau it₂' ∧ s it₁' it₂' )
-  (s_inv_right : ∀ {it₁ it₂ it₂'}, s it₁ it₂ → it₂.unfold = .tau it₂' → ∃ it₁', it₁.unfold = .tau it₁' ∧ s it₁' it₂' )
-  {it₁ it₂ it₂' : iTree E R} :
-    UpToFiniteTau s it₁ it₂ → it₂.unfold = .tau it₂' → UpToFiniteTau s it₁ it₂'
-  | sync Hs, Htau₂ =>
-    let ⟨_it₁', Htau₁, Hs'⟩ := s_inv_right Hs Htau₂
-    drop_left _ Htau₁ (sync Hs')
-  | drop_left it₁' Htau₁ UTTl, Htau₂ =>
-    drop_left it₁' Htau₁ (UTTl.inv_right s_inv_right Htau₂)
-  | drop_right it₂'' Htau₂' UTTr, Htau₂ =>
-    have Heq : it₂'' = it₂' := Obs.tau.inj (E := E) (R := R) (Htau₂ ▸ Htau₂' ▸ rfl)
-    Heq ▸ UTTr
-
-theorem UpToFiniteTau.inv_left
-  (s_inv_left : ∀ {it₁ it₁' it₂}, s it₁ it₂ → it₁.unfold = .tau it₁' → ∃ it₂', it₂.unfold = .tau it₂' ∧ s it₁' it₂' )
-  -- (s_inv_right : ∀ {it₁ it₂ it₂'}, s it₁ it₂ → it₂.unfold = .tau it₂' → ∃ it₁', it₁.unfold = .tau it₁' ∧ s it₁' it₂' )
-  {it₁ it₁' it₂ : iTree E R} :
-    UpToFiniteTau s it₁ it₂ → it₁.unfold = .tau it₁' → UpToFiniteTau s it₁' it₂
-  | sync Hs, Htau₁ =>
-    let ⟨_it₂', Htau₂, Hs'⟩ := s_inv_left Hs Htau₁
-    drop_right _ Htau₂ (sync Hs')
-  | drop_left it₁'' Htau₁' UTTl, Htau₁ =>
-    have Heq : it₁'' = it₁' := Obs.tau.inj (E := E) (R := R) (Htau₁ ▸ Htau₁' ▸ rfl)
-    Heq ▸ UTTl
-  | drop_right it₂' Htau₂ UTTr, Htau₁ =>
-    drop_right it₂' Htau₂ (UTTr.inv_left s_inv_left Htau₁)
-
-theorem UpToFiniteTau.trans [Trans s s s]
-  (s_inv_left : ∀ {it₁ it₁' it₂}, s it₁ it₂ → it₁.unfold = .tau it₁' → ∃ it₂', it₂.unfold = .tau it₂' ∧ s it₁' it₂' )
-  (s_inv_right : ∀ {it₁ it₂ it₂'}, s it₁ it₂ → it₂.unfold = .tau it₂' → ∃ it₁', it₁.unfold = .tau it₁' ∧ s it₁' it₂' )
-  {it₁ it₂ it₃ : iTree E R} :
-    UpToFiniteTau s it₁ it₂ → UpToFiniteTau s it₂ it₃ → UpToFiniteTau s it₁ it₃
-  | sync Hs₁, UTT₂₃ =>
-    UTT₂₃.pushFront s_inv_right Hs₁
-  | drop_left it₁' Htau₁ UTT₁'₂, UTT₂₃ =>
-    let UTT₁'₃ := UTT₁'₂.trans s_inv_left s_inv_right UTT₂₃
-    drop_left it₁' Htau₁ UTT₁'₃
-  | UTT₁₂, sync Hs₂ =>
-      UTT₁₂.pushBack s_inv_left Hs₂
-  | drop_right it₂' Htau₂ UTT₁₂', drop_left it₂'' Htau₂' UTT₂''₃ =>
-      have h : it₂' = it₂'' := Obs.tau.inj (E := E) (R := R) (Htau₂ ▸ Htau₂' ▸ rfl)
-      UTT₁₂'.trans s_inv_left s_inv_right (h ▸ UTT₂''₃)
-  | drop_right  _it₂' Htau₂ UTT₁₂', drop_right it₃' Htau₃ UTT₂₃' =>
-      let UTT₂'₃' := UTT₂₃'.inv_left s_inv_left Htau₂
-      let UTT₁₃' := UTT₁₂'.trans s_inv_left s_inv_right  UTT₂'₃'
-      drop_right it₃' Htau₃ UTT₁₃'
-
-/-
-
-  Now, to obtain weak bisimulation, we "just" need to interleave StrongBisim and UpToFiniteTau
-
--/
-
-
-@[simp]
-abbrev RelOverObsITree (K : iTree E R → iTree E R → Prop)(it₁ it₂ : iTree E R ) :=
-  RelOverObs K Eq it₁.unfold it₂.unfold
+def UpToFiniteTau.mono {K K' : iTree E R → iTree E R → Prop}
+  (KK' : ∀{it it'}, K it it' → K' it it') {it it' : iTree E R} :
+    UpToFiniteTau K it it' → UpToFiniteTau K' it it'
+  | sync _ _ K₁₂ => sync _ _ (KK' K₁₂)
+  | drop_left _ _ _ Htau₁ UTK₁'₂ => drop_left _ _ _ Htau₁ (UTK₁'₂.mono KK')
+  | drop_right _ _ _ Htau₂ UTK₁₂' => drop_right _ _ _ Htau₂ (UTK₁₂'.mono KK')
 
 def WeakBisim (it₁ it₂ : iTree E R ) : Prop :=
-  -- RelOverObs WeakBisim (· = ·) it₁.unfold it₂.unfold
+  -- ∃ it₁' it₂', it₁.IsDelayed it₁' ∧ it₂.IsDelayed it₂' ∧ RelOverObs WeakBisim Eq it₁'.unfold it₂'.unfold
   UpToFiniteTau (RelOverObs WeakBisim Eq ·.unfold ·.unfold) it₁ it₂
-  -- NOTE: We force syncronization by asking the relation over UpToFiniteTau to
-  -- synchronize the iTrees once. This way we prevent infinite loops
-  -- TODO: Improve ergonomics of these definitions. It's a bit of a pain to
-  -- see / work with. Plus, disorienting.
 coinductive_fixpoint monotonicity by
   intro WB WB' WBimp it₁ it₂ WB₁₂
-  exact UpToFiniteTau.mono (RelOverObs.mono (WBimp _ _) id) WB₁₂
-
-@[match_pattern]
-def WeakBisim.sync {it₁ it₂ : iTree E R} : RelOverObs WeakBisim Eq it₁.unfold it₂.unfold → WeakBisim it₁ it₂ :=
-  (WeakBisim.eq_1 .. ▸ UpToFiniteTau.sync ·)
-
-@[match_pattern]
-def WeakBisim.drop_left {it₁ it₁' it₂ : iTree E R} : it₁.unfold = .tau it₁' → WeakBisim it₁' it₂ → WeakBisim it₁ it₂ :=
-  fun Htau H₁'₂ => (WeakBisim.eq_1 .. ▸ UpToFiniteTau.drop_left it₁' Htau (WeakBisim.eq_1 .. ▸ H₁'₂))
-
-@[match_pattern]
-def WeakBisim.drop_right {it₁ it₂ it₂' : iTree E R} : it₂.unfold = .tau it₂' → WeakBisim it₁ it₂' → WeakBisim it₁ it₂ :=
-  fun Htau H₁₂' => (WeakBisim.eq_1 .. ▸ UpToFiniteTau.drop_right it₂' Htau (WeakBisim.eq_1 .. ▸ H₁₂'))
-
--- TODO: Cool, but I actually need the recursor
--- @[elab_as_elim, cases_eliminator]
--- def WeakBisim.rec {motive : ∀{it₁ it₂}, WeakBisim it₁ it₂ → Prop}
---   (sync : ∀ {x y : iTree E R} (RO : RelOverObs WeakBisim Eq x.unfold y.unfold), motive (.sync RO))
---   (drop_left : ∀ {x y : iTree E R} x' (Htau : x.unfold = .tau x') (UTT : WeakBisim x' y), motive (.drop_left Htau UTT))
---   (drop_right : ∀ {x y : iTree E R} y'  (Htau : y.unfold = .tau y') (UTT : WeakBisim x y'), motive (.drop_right Htau UTT))
---   {it₁ it₂ : iTree E R} (UTT : WeakBisim it₁ it₂) : motive UTT :=
---   match (WeakBisim.eq_1 it₁ it₂ ▸ UTT) with
---   | .sync RO => sync RO
---   | .drop_left it₁' Htau UTT =>
---     drop_left it₁' Htau (WeakBisim.eq_1 .. ▸ UTT)
---   | .drop_right it₂' Htau UTT =>
---     drop_right it₂' Htau (WeakBisim.eq_1 .. ▸ UTT)
-
-local notation " τᶠ" a => UpToFiniteTau a
-local notation a " ʷ≅ᵇ " b => RelOverObs WeakBisim Eq a b
-local notation a " ʷ∼ᵇ " b => WeakBisim a b
+  -- have : ⟨it₁', it₂', it₁it₁', it₂it₂', WB₁₂⟩ := WB₁₂
+  -- refine ⟨it₁', it₂', it₁it₁', it₂it₂', (RelOverObs.mono (WBimp _ _) id) WB₁₂⟩
+  exact WB₁₂.mono (RelOverObs.mono (WBimp _ _) id)
 
 namespace WeakBisim
 
 @[refl]
 def refl (it : iTree E R) : WeakBisim it it := by
   apply WeakBisim.coinduct (pred := (· = ·)) _ _ _ rfl
-  intro it₁ it₂ rfl
-  exact UpToFiniteTau.sync <| Std.Refl.refl _
-
-set_option pp.unicode.fun true
-set_option pp.unicode true
+  intro it _ rfl
+  apply UpToFiniteTau.sync
+  apply Std.Refl.refl _
 
 @[symm]
 def symm (it₁ it₂ : iTree E R) : WeakBisim it₁ it₂ → WeakBisim it₂ it₁ := by
@@ -1087,9 +992,10 @@ def symm (it₁ it₂ : iTree E R) : WeakBisim it₁ it₂ → WeakBisim it₂ i
   clear H it₁ it₂
   intro it₁ it₂ H
   unfold flip WeakBisim at H
-  -- TODO: I would like to extract this proof into what is now `UpToFiniteTau.symm`
+  -- have ⟨it₂', it₁', H₂, H₁, H⟩ := H
+  -- exists it₁', it₂', H₁, H₂
   induction H with
-  | @sync it₁ it₂ H =>
+  | sync it₁ it₂ H =>
     apply UpToFiniteTau.sync
     generalize h₁ : it₁.unfold = obs₁ at *
     generalize h₂ : it₂.unfold = obs₂ at *
@@ -1100,10 +1006,46 @@ def symm (it₁ it₂ : iTree E R) : WeakBisim it₁ it₂ → WeakBisim it₂ i
       constructor; exact H
     | .vis _ _ _ _ H =>
       constructor; exact H
-  | @drop_left _ _ _ Htau _ IH =>
-    exact .drop_right _ Htau IH
-  | @drop_right _ _ _ Htau _ IH =>
-    exact .drop_left _ Htau IH
+  | drop_left it₁ it₂ it₁' Htau₁ UTT₁'₂ IH =>
+    exact UpToFiniteTau.drop_right _ _ _ Htau₁ IH
+  | drop_right it₁ it₂ it₂' Htau₂ UTT₁₂' IH =>
+    exact UpToFiniteTau.drop_left _ _ _ Htau₂ IH
+
+/--
+
+  (RelOverObs WeakBisim Eq) it₁ it₂ →
+  it₂.IsDelayed it₂  →
+  ∃ it₁', it₁.IsDelayed it₁' ∧
+  (RelOverObs WeakBisim Eq) it₁' it₂'
+
+  -- Basically, we know `it₂` is a bunch of
+  -- taus and it's
+
+-/
+
+-- def cases₂ {it₁ it₂ it₃ : iTree E R} : WeakBisim it₁ it₂ → WeakBisim it₂ it₃ →
+--     ∃ (it₁' it₂' it₃' : iTree E R),
+--     it₁.IsDelayed it₁' ∧
+--     it₂.IsDelayed it₂' ∧
+--     it₃.IsDelayed it₃' ∧
+--     (RelOverObs WeakBisim Eq) it₁'.unfold it₂'.unfold ∧
+--     (RelOverObs WeakBisim Eq) it₂'.unfold it₃'.unfold := by
+--   intro H₁ H₂
+--   unfold WeakBisim at *
+--   have ⟨it₁', a, Hdel₁, Ha, H₁⟩ := H₁
+--   have ⟨b, it₃', Hb, Hdel₃, H₂⟩ := H₂
+--   suffices ∃ it₂', it₂.IsDelayed it₂' ∧
+--       (RelOverObs WeakBisim Eq) it₁'.unfold it₂'.unfold ∧
+--       (RelOverObs WeakBisim Eq) it₂'.unfold it₃'.unfold by grind
+--   match Ha, Hb with
+--   | .refl, .refl =>
+--     refine ⟨it₂, .refl, H₁, H₂⟩
+--   | .refl, .tau _ Hb =>
+--     sorry
+--   | .tau _ Ha, .refl =>
+--     sorry
+--   | .tau _ Ha, .tau _ Hb =>
+--     sorry
 
 def trans (it₁ it₂ it₃ : iTree E R) : WeakBisim it₁ it₂ → WeakBisim it₂ it₃ → WeakBisim it₁ it₃ := by
   intro H₁ H₂
@@ -1111,30 +1053,131 @@ def trans (it₁ it₂ it₃ : iTree E R) : WeakBisim it₁ it₂ → WeakBisim 
   clear H₁ H₂ it₁ it₂ it₃
   intro it₁ it₃ ⟨it₂, H₁, H₂⟩
   unfold WeakBisim at H₁ H₂
-  -- We need to use `induction` since we need to use the recursor of `UpToFiniteTau`.
-  induction H₁ generalizing it₃ with
-  | @sync it₁ it₂ RO₁₂ =>
-    rename_i aux2 aux; clear aux2 aux
+  induction H₁ with
+  | sync it₁ it₂ RO₁₂ =>
+    -- From `RO₁₂` we can deduce that the other relation must
+    -- either also be sync, or that it has a `tau` on `it₂`
     generalize Hobs₁ : it₁.unfold = obs₁ at *
-    generalize Hobs₂ : it₂.unfold = obs₂ at *
-    -- generalize Hobs₃ : it₃.unfold = obs₃ at *
+    generalize Hobs₂ : it₂.unfold = obs₁ at *
     match RO₁₂ with
+    | .ret v₁ v₂ H =>
+      -- We deduce that H₂ must also be a `.sync.ret`
+      induction H₂ with
+      | sync it₂ it₃ R₂₃ =>
+        rw [Hobs₂] at R₂₃
+        generalize Hobs₃ : it₃.unfold = obs₃ at *
+        cases R₂₃
+        apply UpToFiniteTau.sync
+        rw [Hobs₁, Hobs₃]
+        constructor
+        grind
+      | drop_right it₂ it₃ it₂' Htau₂ H₂ IH =>
+        apply UpToFiniteTau.drop_right _ _ _ Htau₂
+        apply IH; assumption
+      | drop_left it₂ it₃ it₂' Htau₂ H₂ => grind
+    | .vis A ev k₁ k₂ H =>
+      -- We deduce that H₂ must also be a `.sync.vis`
+      induction H₂ with
+      | sync it₂ it₃ R₂₃ =>
+        rw [Hobs₂] at R₂₃
+        generalize Hobs₃ : it₃.unfold = obs₃ at *
+        cases R₂₃
+        apply UpToFiniteTau.sync
+        rw [Hobs₁, Hobs₃]
+        constructor
+        grind
+      | drop_right it₂ it₃ it₂' Htau₂ H₂ IH =>
+        apply UpToFiniteTau.drop_right _ _ _ Htau₂
+        apply IH; assumption
+      | drop_left it₂ it₃ it₂' Htau₂ H₂ => grind
     | .tau it₁' it₂' H =>
-      apply UpToFiniteTau.drop_left _ Hobs₁
-      induction H₂ generalizing it₁' with
-      | @sync it₂ it₃ RO₂₃ =>
-        rename_i aux aux2; clear aux aux2
-        sorry
-      | @drop_left it₂ it₃ it₂' Htau₂ UTT₂'₃ IH =>
-        rename_i aux aux2; clear aux aux2
-        sorry
-      | @drop_right it₂ it₃ it₂' Htau₂ UTT₂'₃ IH =>
-        rename_i aux aux2; clear aux aux2
-        sorry
-    | .ret _ _ H =>
-      sorry
-    | .vis _ _ _ _ H =>
-      sorry
+      -- This is the tricky case. It doesn't really tell us much about
+      -- the second relation, only that it must be of some `tau`.
+      induction H₂ with
+      | sync it₂ it₃ R₂₃ =>
+        -- We are able to deduce that it₃ is `tau`.
+        rw [Hobs₂] at R₂₃
+        generalize Hobs₃ : it₃.unfold = obs₃ at *
+        rcases R₂₃ with (_ | _ | it₃')
+        apply UpToFiniteTau.sync
+        rw [Hobs₁, Hobs₃]
+        apply RelOverObs.tau
+        exists it₂'
+      | drop_left it₂ it₃ it₂'' Htau₂ H₂ IH =>
+        obtain rfl : it₂' = it₂'' := by grind
+        clear IH
+        -- This really tells us nothing. We proceed
+        -- by induction again, since at some point
+        -- we must exhaust this case.
+        induction H₂ with
+        | sync it₂' it₃ R₂₃ =>
+          generalize Hobs₂' : it₂'.unfold = obs₂' at *
+          generalize Hobs₃ : it₃.unfold = obs₃ at *
+          cases R₂₃ with
+          | ret v₂ v₃ H =>
+            sorry
+          | vis A ev k₂ k₃ H =>
+            sorry
+          | tau it₂'' it₃' H' =>
+            apply UpToFiniteTau.sync
+            simp only [*]
+            constructor
+            refine ⟨it₂', H, ?_⟩
+            unfold WeakBisim
+            apply UpToFiniteTau.drop_left _ _ _ Hobs₂'
+            unfold WeakBisim at H'
+            assumption
+        | drop_left it₂ it₃ it₂' Htau₂' R₂₃ IH =>
+          sorry
+        | drop_right it₂ it₃ it₃' Htau₃ R₂₃ IH =>
+          sorry
+      | drop_right it₂ it₃ it₃' Htau₃ H₂ IH =>
+        -- rw [Hobs₁, Htau₃]
+        apply UpToFiniteTau.drop_right _ _ _ Htau₃
+        apply IH
+        assumption
+  | drop_left it₁ it₂ it₁' Htau₁ RO₁'₂ IH =>
+    -- Proceed simply by induction
+    apply UpToFiniteTau.drop_left _ _ _ Htau₁
+    apply IH H₂
+  | drop_right it₁ it₂ RO₁₂ =>
+    sorry
+
+  -- replace ⟨it₁', it₂', h₁, h₂, H₁'₂'⟩ := H₁
+  -- replace ⟨it₂'', it₃', h₂', h₃, H₂''₁'⟩ := H₂
+  -- have := iTree.IsDelayed.min h₂ h₂'
+  -- -- We need to use `induction` since we need to use the recursor of `UpToFiniteTau`.
+  -- generalize Hobs₁ : it₁'.unfold = obs₁ at *
+  -- generalize Hobs₂ : it₂'.unfold = obs₂ at *
+  -- generalize Hobs₂' : it₂'.unfold = obs₂ at *
+  -- generalize Hobs₃ : it₃'.unfold = obs₃ at *
+  -- match H₁'₂', H₁''₂' with
+  -- | .ret v₁ v₂ H₁, .ret _ v₃ H₂ =>
+  --   sorry
+  -- | .tau jt₁ jt₂ H₁, .tau _ jt₂
+  -- | tau it
+  -- -- | @sync it₁ it₂ RO₁₂ =>
+  -- --   rename_i aux2 aux; clear aux2 aux
+  -- --   generalize Hobs₁ : it₁.unfold = obs₁ at *
+  -- --   generalize Hobs₂ : it₂.unfold = obs₂ at *
+  -- --   -- generalize Hobs₃ : it₃.unfold = obs₃ at *
+  -- --   match RO₁₂ with
+  -- --   | .tau it₁' it₂' H =>
+  -- --     apply UpToFiniteTau.drop_left _ Hobs₁
+  -- --     induction H₂ generalizing it₁' with
+  -- --     | @sync it₂ it₃ RO₂₃ =>
+  -- --       rename_i aux aux2; clear aux aux2
+  -- --       sorry
+  -- --     | @drop_left it₂ it₃ it₂' Htau₂ UTT₂'₃ IH =>
+  -- --       rename_i aux aux2; clear aux aux2
+  -- --       sorry
+  -- --     | @drop_right it₂ it₃ it₂' Htau₂ UTT₂'₃ IH =>
+  -- --       rename_i aux aux2; clear aux aux2
+  -- --       sorry
+  -- --   | .ret _ _ H =>
+  -- --     sorry
+  -- --   | .vis _ _ _ _ H =>
+  -- --     sorry
 
     induction H₂ generalizing it₁ with
     | @sync it₂ it₃ RO₂₃ =>
