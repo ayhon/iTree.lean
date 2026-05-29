@@ -93,10 +93,9 @@ def fact_body (n : Nat) : iTree (λX↦ CallEff Nat Nat X ⊕ NoEff X) Nat :=
     (call n') >>= fun y =>
     iTree.ret (n * y)
 
-def factorial (n : Nat) : iTree NoEff Nat := 
-  -- TODO: Universe issues... 😕
-  recur fact_body n
+def factorial (n : Nat) : iTree NoEff Nat :=
+  recur (fact_body.{_,0}) n
 
-/- #reduce burn 10 (factorial 6) -/
+#reduce burn 20 (factorial 6)
 
 end MpriRIP
