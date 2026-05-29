@@ -1133,6 +1133,11 @@ def trans (a b c : iTree E R) : WeakBisim a b → WeakBisim b c → WeakBisim a 
 
 end WeakBisim
 
+instance : Equivalence (WeakBisim (E := E) (R := R)) where
+  refl := .refl
+  symm := .symm
+  trans := .trans
+
 end WeakBisimulation
 
 end EqualitiesOverITrees
