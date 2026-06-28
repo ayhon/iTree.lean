@@ -97,11 +97,8 @@ def Dubious.badDecidableTrue : Decidable True :=
     apply Subsingleton.elim _ _
 
 -- `True` is false!
-#eval @decide True Dubious.badDecidableTrue
 
 set_option pp.proofs true in
-#print Quot.recOnSubsingleton
-#print Quot.recOnSubsingleton._proof_1
 
 def recOnSubsingleton'
   {α : Sort _}
