@@ -3,156 +3,31 @@ import Lean
 
 namespace IterTree
 
-/-
-
-# What is an iTree?
-
-An iTree represents a computation. A computation can be represented by an infinitely
-branching tree, which give rise to the different possible traces.
-
-The type of an iTree is parametrized by two types:
- - R, the type of values returned by the computation
- - E, the possible events raised by the computation before it concludes. Data may be
-   requested by the computation before it can resume, and the event is allowed to
-   depend on the type of this data.
-
-We would write this as
-
-    coinductive iTree (E : Type → Type) (R : Type) where
-    | ret : R → iTree E R
-    | tau : iTree E R → iTree E R
-    | vis : ∀ A, E A → (A → iTree E R) → iTree E R
-
-However, in Lean we don't have coinductive data!
-
-We could talk about a finite version of iTrees though, if we just make the definition
-inductive.
-
--/
-
-namespace Finite
-
-inductive iTree (E : Type q → Type r) (R : Type v) : Type _ where
-| ret : R → iTree E R
-| tau : iTree E R → iTree E R
-| vis {A : Type q} : E A → (A → iTree E R) → iTree E R
-
-/-
-
-Then, we can define a bunch of interesting operations over trees!
-
--/
-
-namespace iTree
-
-variable {E : Type q → Type r}
-
-def bindLeft {α β} (f : α → iTree E β) : iTree E α → iTree E β
-| .ret v    => f v
-| .tau it   => .tau (it.bindLeft f)
-| .vis ev k => .vis ev (fun a => (k a).bindLeft f)
-
-instance : Bind (iTree E) := ⟨(·.bindLeft ·)⟩
-instance : Pure (iTree E) := ⟨.ret⟩
-instance : Monad (iTree E) where
-instance  : LawfulMonad (iTree E) := .mk'
-   (id_map     := by intros α it; simp only [Functor.map, bind, pure, Function.comp_id]; induction it <;> simp [bindLeft, *] )
-   (pure_bind  := by intros α β it f; simp only [bind, bindLeft])
-   (bind_assoc := by intros α β γ it f g; simp only [bind]; induction it <;> simp [bindLeft, *])
-
--- Defined as an inductive proposition, since we cannot test for equality of types (for the `vis`-`vis` case)
-inductive eqUpToTau : iTree E R → iTree E R → Prop where
-| of_ret (r : R) : (iTree.ret r).eqUpToTau (.ret r)
-| of_vis {A : Type q}(ev : E A) (k₁ k₂ : A → iTree E R) : (∀ a : A, (k₁ a).eqUpToTau (k₂ a)) → (iTree.vis ev k₁).eqUpToTau (.vis ev k₂)
-| of_tau (it₁ it₂ : iTree E R) : it₁.eqUpToTau it₂ → (iTree.tau it₁).eqUpToTau (.tau it₂)
-| of_left_tau (it₁ it₂ : iTree E R) : it₁.eqUpToTau it₂ → (iTree.tau it₁).eqUpToTau it₂
-| of_right_tau (it₁ it₂ : iTree E R) : it₁.eqUpToTau it₂ →  it₁.eqUpToTau (.tau it₂)
-
-/-
-
-The issue with this definition is that it cannot be used to capture most computations
-we're interested in. Without looking further, we cannot represent any computation which
-is infinite, like `loop {}`!
-
-Furthermore, the `tau` constructor in this definition is useless. It can always be
-stripped! In particular, our `eqUpToTau` predicate is equivalent to `Eq` if we run
-the iTrees we're comparing through our stripping function first.
-
--/
-
-def stripTau : iTree E R → iTree E R
-| .ret v => .ret v
-| .tau it => it.stripTau
-| .vis ev k => .vis ev (fun it => (k it).stripTau)
-
-theorem eqUpToTau_of_stripTau_eq_stripTau {it₁ it₂ : iTree E R} : (it₁.stripTau = it₂.stripTau) → it₁.eqUpToTau it₂ := by
-  intros hyp
-  induction it₁ generalizing it₂ with
-  | ret v₁ =>
-    induction it₂ with
-    | ret v₂ =>
-      grind [eqUpToTau, stripTau]
-    | tau it₂ =>
-      grind [stripTau, eqUpToTau]
-    | vis ev₂ k₂ =>
-      simp [stripTau] at hyp
-  | tau it₁ IH =>
-    grind [stripTau, eqUpToTau]
-  | vis ev₁ k₁ IH₁ =>
-    induction it₂ with
-    | ret v₂ =>
-      grind [eqUpToTau, stripTau]
-    | tau it₂ =>
-      grind [stripTau, eqUpToTau]
-    | vis ev₂ k₂ IH₂ =>
-      simp [stripTau] at hyp
-      obtain ⟨rfl, rfl, hyp⟩ :=  hyp
-      simp only [heq_eq_eq] at hyp
-      replace hyp := fun a => congrFun hyp a
-      constructor
-      intros a
-      apply IH₁
-      grind
-
-theorem eqUpToTau_iff_stripTau_eq_stripTau {it₁ it₂ : iTree E R} : it₁.eqUpToTau it₂ ↔ (it₁.stripTau = it₂.stripTau) := by
-  constructor <;> intros hyp
-  · induction hyp <;> grind [stripTau]
-  · apply eqUpToTau_of_stripTau_eq_stripTau hyp
-
-end iTree
-
-end Finite
-
-
-/-
-
-Therefore, we look to give a different presentation of iTrees, which does not have this problem, but also
-allows definining the same operations as the finite case.
-
--/
-
 section StateMachine
 
-/-
+structure Effect : Type (e + 1) where
+  In : Type e
+  Out : In → Type e
 
-The first attempt I want to try is to give an encoding in terms of a state machine. Basically, we have a
-"current state" and a "step function" which tells us to what state to go next.
+instance : HOr Effect Effect Effect where
+  hOr e₁ e₂ := {
+    In := e₁.In ⊕ e₂.In
+    Out := fun
+      | .inl i => e₁.Out i
+      | .inr i => e₂.Out i
+  }
 
-The issue with this representation is that a single, fixed state is not enough to express all we want out
-of iTrees (Is this actually true?).
-
-Inspired by Lean's Std.Iter APIs, we can attack a specific state with the ability to say it represents
-some `iTree`. In a sense, this means that we generalize over implementations of the `iTree`, to remain
-only with its interface, which is what we do theorems againsts.
-
--/
-
+class Subeffect (E₁ E₂ : Effect) where
+  incl_In : E₁.In → E₂.In
+  incl_Out : ∀ {i : E₁.In}, E₁.Out i → E₂.Out (incl_In i)
 
 @[grind cases]
-inductive Obs (E : Type q → Type r) (R : Type v) (K : Type k) where
+inductive Obs (E : Effect.{e}) (R : Type v) (K : Type k) where
 | ret : R → Obs E R K
 | tau : K → Obs E R K
-| vis {A : Type q} : E A → (A → K) → Obs E R K
+| vis : (eff : E.In) → (E.Out eff → K) → Obs E R K
+
+variable {E : Effect.{e}}
 
 @[simp, grind]
 def Obs.mapState (f : α → β) : Obs E R α → Obs E R β
@@ -167,32 +42,36 @@ def Obs.bindVal (f : α → Obs E β K) : Obs E α K → Obs E β K
 | .vis ev k => .vis ev k
 
 
-structure iTree (E : Type q → Type r) (R : Type v) where
+structure iTree (E : Effect.{e}) (R : Type v) where
   {State : Type s}
   curr : State
   step : State → Obs E R State
 
 /-
 
+NOTE:
+
 An alternate representation of this interface would be to have `curr : State` be the implementation of
-an `iTree E R`, and assign to each `State` type a particular `step` function.
+an `iTree E R`, and assign to each `State` type a particular `step` function. This is closer to the
+`Std.Iter` API I was originally inspired by.
 
 -/
 
 namespace iTree
 
-variable {E : Type q → Type r} {R : Type v}
+variable {E : Effect.{e}} {R : Type v}
 
 /-- The looping computation -/
 def loop.{s} : iTree E R where
-  State := PUnit.{s+1}
-  curr := .unit
+  curr : PUnit.{s+1} := ⟨⟩
   step _ := .tau .unit
 
 instance : Inhabited (iTree E R) := ⟨loop⟩
 
+abbrev currStep (it : iTree E R) : Obs E R (it.State) := it.step it.curr
+
 def unfold (it : iTree E R) : Obs E R (iTree E R) :=
-  match it.step it.curr with
+  match it.currStep with
   | .ret v => .ret v
   | .tau next => .tau {it with curr := next}
   | .vis ev k => .vis ev (fun x => {it with curr := (k x)})
@@ -208,16 +87,16 @@ def unfold (it : iTree E R) : Obs E R (iTree E R) :=
 /- grind_pattern unfold_cases => it.unfold -/
 
 def ret.{s} (r : R) : iTree E R where
-  curr : PUnit.{s+1} := .unit
+  curr : PUnit.{s+1} := ⟨⟩
   step _ := .ret r
 
-def vis.{s} {α : Type q} (ev : E α) (k : α → iTree.{_,_,_,s} E R) : iTree E R where
-  curr : Unit ⊕ (a : α) × (k a ).State := .inl .unit
+def vis (ev : E.In) (k : E.Out ev → iTree E R) : iTree E R where
+  curr : Unit ⊕ (inp : E.Out ev) × (k inp).State := .inl ⟨⟩
   step
   | .inl ⟨⟩ => .vis ev (fun a => .inr <| ⟨a, (k a).curr⟩)
   | .inr ⟨a, s⟩ => (k a).step s |>.mapState (.inr ⟨a, ·⟩)
 
-def tau.{s} (it : iTree.{_,_,_,s} E R) : iTree E R where
+def tau (it : iTree E R) : iTree E R where
   -- We basically generate an artificial prior element in the state.
   curr : Unit ⊕ it.State  := .inl ⟨⟩
   step
@@ -246,7 +125,11 @@ def bindLeft {α β} (f : α → iTree E β)(it : iTree E α) : iTree E β where
       | .inl curr =>
         it.step curr
         |>.mapState .inl
-        |>.bindVal (fun a => .tau <| .inr ⟨a, (f a).curr⟩)
+        |>.bindVal
+        -- TODO: Optimization and helps only requiring strong bisimulation
+        -- for monad laws.
+        /- fun v => (f v).currStep.mapState (.inr ⟨v, ·⟩) -/
+        fun v => .tau <| .inr ⟨v, (f v).curr⟩
       | .inr ⟨a, st⟩ =>
         (f a).step st
         |>.mapState (.inr ⟨a, ·⟩)
@@ -305,7 +188,7 @@ section StrongBisimulation
 local instance : Std.Refl (Eq (α := α)) where refl := .refl
 local instance : Std.Symm (Eq (α := α)) where symm _ _:= .symm
 
-variable {E : Type quest → Type resp}{R : Type ret}
+variable {E : Effect.{e}}{R : Type ret}
 
 /-
 
@@ -324,7 +207,7 @@ inductive RelOverObs (s : S₁ → S₂ → Prop) (r : R → R → Prop) :
     Obs E R S₁ → Obs E R S₂ → Prop where
   | ret (v₁ v₂ : R) : r v₁ v₂ → RelOverObs s r (.ret v₁) (.ret v₂)
   | tau (it₁ : S₁) (it₂ : S₂) : s it₁ it₂ → RelOverObs s r (.tau it₁) (.tau it₂)
-  | vis (A : Type _) (ev : E A) (k₁ : A → S₁) (k₂ : A → S₂) :
+  | vis (ev : E.In) (k₁ : E.Out ev → S₁) (k₂ : E.Out ev → S₂) :
     (∀ x, s (k₁ x) (k₂ x)) → RelOverObs s r (.vis ev k₁) (.vis ev k₂)
 
 theorem RelOverObs.mono {s s' : S₁ → S₂ → Prop} {r r' : R → R → Prop} :
@@ -334,19 +217,19 @@ theorem RelOverObs.mono {s s' : S₁ → S₂ → Prop} {r r' : R → R → Prop
   fun ss' rr' _ _ => fun
     | .ret v₁ v₂ h => .ret v₁ v₂ (rr' h)
     | .tau it₁ it₂ h => .tau _ _ (ss' h)
-    | .vis A ev k₁ k₂ h => .vis A ev k₁ k₂ (ss' <| h ·)
+    | .vis ev k₁ k₂ h => .vis ev k₁ k₂ (ss' <| h ·)
 
 theorem RelOverObs.flip._mp {s : S → S → Prop} {r : R → R → Prop} {o o' : Obs E R S} :
     RelOverObs s r o o' → flip (RelOverObs (flip s) (flip r)) o o'
   | .ret v₁ v₂ h => .ret v₂ v₁ h
   | .tau it₁ it₂ h => .tau it₂ it₁ h
-  | .vis A ev k₁ k₂ h => .vis A ev k₂ k₁ h
+  | .vis ev k₁ k₂ h => .vis ev k₂ k₁ h
 
 theorem RelOverObs.flip._mpr {s : S → S → Prop} {r : R → R → Prop} {o o' : Obs E R S} :
     flip (RelOverObs (flip s) (flip r)) o o' → RelOverObs s r o o'
   | .ret v₁ v₂ h => .ret v₂ v₁ h
   | .tau it₁ it₂ h => .tau it₂ it₁ h
-  | .vis A ev k₁ k₂ h => .vis A ev k₂ k₁ h
+  | .vis ev k₁ k₂ h => .vis ev k₂ k₁ h
 
 theorem RelOverObs.flip {s : S → S → Prop} {r : R → R → Prop} {o o' : Obs E R S} :
     flip (RelOverObs (flip s) (flip r)) o o' = RelOverObs s r o o' :=
@@ -357,7 +240,7 @@ theorem RelOverObs.refl (s : S → S → Prop) (r : R → R → Prop) [Std.Refl 
     ∀ (o : Obs E R S), (RelOverObs s r) o o
   | .ret v => .ret v v (Std.Refl.refl v)
   | .tau it => .tau it it (Std.Refl.refl it)
-  | .vis ev k => .vis _ ev k k (Std.Refl.refl <| k ·)
+  | .vis ev k => .vis ev k k (Std.Refl.refl <| k ·)
 
 instance [Std.Refl s][Std.Refl r] : Std.Refl (RelOverObs (E := E) (R := R) s r) where refl := .refl s r
 
@@ -366,7 +249,7 @@ theorem RelOverObs.symm (s : S → S → Prop) (r : R → R → Prop) [Std.Symm 
     (RelOverObs s r) o o' → (RelOverObs s r) o' o
   | .ret v₁ v₂ h => .ret v₂ v₁ (Std.Symm.symm v₁ v₂ h)
   | .tau it₁ it₂ h => .tau it₂ it₁ (Std.Symm.symm it₁ it₂ h)
-  | .vis A ev k₁ k₂ h => .vis _ ev k₂ k₁ (Std.Symm.symm _ _ <| h ·)
+  | .vis ev k₁ k₂ h => .vis ev k₂ k₁ (Std.Symm.symm _ _ <| h ·)
 
 instance [Std.Symm s][Std.Symm r] : Std.Symm (RelOverObs (E := E) (R := R) s r) where symm _ _ := .symm s r
 
@@ -379,7 +262,7 @@ theorem RelOverObs.trans
     (RelOverObs (E := E) s₁₃ r) o₁ o₃
   | .ret v₁ v₂ h₁, .ret _ v₃ h₂ => .ret v₁ v₃ (Trans.trans h₁ h₂)
   | .tau it₁ it₂ h₁, .tau _ it₃ h₂ => .tau it₁ it₃ (Trans.trans h₁ h₂)
-  | .vis _ ev k₁ k₂ h₁, .vis _ _ _ k₃ h₂  => .vis _ ev k₁ k₃ (λx↦ Trans.trans (h₁ x) (h₂ x))
+  | .vis ev k₁ k₂ h₁, .vis _ _ k₃ h₂  => .vis ev k₁ k₃ (λx↦ Trans.trans (h₁ x) (h₂ x))
 
 instance [Trans r r r][Trans s₁₂ s₂₃ s₁₃] :
     Trans (RelOverObs (E := E) (R := R) s₁₂ r)
@@ -420,7 +303,7 @@ theorem symm {it₁ it₂ : iTree E R} [Std.Symm r]: StrongBisim r it₁ it₂ �
     rw [h₁, h₂]; constructor; apply Std.Symm.symm _ _ h
   | ⟨.tau it₁, .tau it₂, h₁, h₂, .tau _ _ h⟩ =>
     rw [h₁, h₂]; constructor; exact h
-  | ⟨.vis ev k₁, .vis _ k₂, h₁, h₂, .vis _ _ _ _ h⟩ =>
+  | ⟨.vis ev k₁, .vis _ k₂, h₁, h₂, .vis _ _ _ h⟩ =>
     rw [h₁, h₂]; constructor; exact h
 
 theorem trans {it₁ it₂ it₃ : iTree E R} [Trans r r r]: StrongBisim r it₁ it₂ → StrongBisim r it₂ it₃ → StrongBisim r it₁ it₃ := by
@@ -436,7 +319,7 @@ theorem trans {it₁ it₂ it₃ : iTree E R} [Trans r r r]: StrongBisim r it₁
     constructor; exact Trans.trans H₁ H₂
   | .tau it₁ it₂ H₁, .tau _ it₃ H₂ =>
     constructor; exact ⟨it₂, H₁, H₂⟩
-  | .vis A ev k₁ k₂ H₁, .vis _ _ _ k₃ H₂ =>
+  | .vis ev k₁ k₂ H₁, .vis _ _ k₃ H₂ =>
     constructor; intro x; exact ⟨k₂ x, H₁ x, H₂ x⟩
 
 instance [Trans r r r] : Trans (StrongBisim (E := E) (R := R) r) (StrongBisim (E := E) (R := R) r) (StrongBisim (E := E) (R := R) r) where trans := StrongBisim.trans
@@ -486,7 +369,7 @@ private def ObsEq.step_tau_obsEq_self (State : Type _)(curr : State)(step : Stat
     simp [Obs.mapState, iTree.tau]
   case progress =>
     intro it₁ it₂ ⟨H, HC, Hs⟩
-    cases h : it₁.step it₁.curr <;> simp only [h, iTree.unfold, HC, Obs.mapState, Hs]
+    cases h : it₁.step it₁.curr <;> simp only [h, iTree.unfold, HC, Obs.mapState, Hs, iTree.currStep]
     case ret v =>
       constructor; rfl
     case tau it =>
@@ -509,13 +392,13 @@ theorem ObsEq.tau_congr {it₁ it₂ : iTree E R} : it₁ ≈ it₂ → (iTree.t
     _ ≈ { it₂.tau with curr := .inr it₂.curr } := (step_tau_obsEq_self ..)
 
 def ObsEq.step_vis_obsEq_self
-     (ev : E A) (k : A → iTree E R) (a : A) (curr : (k a).State) :
+     (ev : E.In) (k : E.Out ev → iTree E R) (a : E.Out ev) (curr : (k a).State) :
     { curr, step := (k a).step : iTree E R} ≈
     { (iTree.vis ev k) with curr := .inr ⟨a, curr⟩ } := by
   apply ObsEq.coinduct (fun
     (iTree.mk (State := State₁) curr₁ step₁)
     (iTree.mk (State := State₂) curr₂ step₂) =>
-    ∃ (mpr : (PUnit ⊕ (_ : A) × State₁) → State₂),
+    ∃ (mpr : (PUnit ⊕ (_ : E.Out ev) × State₁) → State₂),
     curr₂ = mpr (Sum.inr ⟨a, curr₁⟩) ∧
     ∀ (s : State₁),
     step₂ (mpr (.inr ⟨a, s⟩)) = (step₁ s).mapState (mpr <| .inr ⟨a, ·⟩)
@@ -527,7 +410,7 @@ def ObsEq.step_vis_obsEq_self
     simp [iTree.vis]
   case progress =>
     rintro it₁ it₂ ⟨H, HC, Hs⟩
-    cases h : it₁.step it₁.curr <;> simp only [h, iTree.unfold, HC, Hs, Obs.mapState]
+    cases h : it₁.step it₁.curr <;> simp only [h, iTree.unfold, HC, Hs, Obs.mapState, iTree.currStep]
     case ret v =>
       constructor; rfl
     case tau it =>
@@ -538,11 +421,7 @@ def ObsEq.step_vis_obsEq_self
       intros
       exists H
 
--- TODO: Must restrict the universe of inputs to the universe of states for this
--- lemma to make sense. I guess it's a fine simplification to make to assume that
--- our states are in the same universe as our inputs? At worst one can just bump
--- the universe levels.
-def ObsEq.vis_congr {A : Type _} (ev : E A) (k₁ k₂ : A → iTree.{_,_,_,quest} E R) :
+def ObsEq.vis_congr (ev : E.In) (k₁ k₂ : E.Out ev → iTree.{_,_,max e s} E R) :
     (∀ a, k₁ a ≈ k₂ a) → iTree.vis ev k₁ ≈ iTree.vis ev k₂ := by
   intro Hk
   unfold StrongBisim
@@ -558,7 +437,7 @@ def ObsEq.vis_congr {A : Type _} (ev : E A) (k₁ k₂ : A → iTree.{_,_,_,ques
 
 theorem ObsEq.obsEq_ret_of_unfold_ret {it : iTree E R} {v : R} : it.unfold = .ret v → it ≈ .ret v := by
   simp [iTree.unfold]
-  cases h : it.step it.curr <;> simp
+  cases h : it.step it.curr <;> simp [iTree.currStep, h]
   rintro rfl
   unfold StrongBisim
   simp only [h, iTree.unfold, iTree.ret]
@@ -566,7 +445,7 @@ theorem ObsEq.obsEq_ret_of_unfold_ret {it : iTree E R} {v : R} : it.unfold = .re
 
 theorem ObsEq.obsEq_tau_of_unfold_tau {it it': iTree E R} : it.unfold = .tau it' → it ≈ .tau it' := by
   simp [iTree.unfold]
-  cases h : it.step it.curr <;> simp
+  cases h : it.step it.curr <;> simp [iTree.currStep, h]
   case tau st =>
     rintro rfl
     simp [iTree.tau] at *
@@ -597,19 +476,19 @@ theorem ObsEq.obsEq_tau_of_unfold_tau {it it': iTree E R} : it.unfold = .tau it'
         exists H
         simp [Hs]
 
-theorem ObsEq.obsEq_vis_of_unfold_vis {it : iTree E R}{ev : E A} {k}: it.unfold = .vis ev k → it ≈ .vis ev k := by
+theorem ObsEq.obsEq_vis_of_unfold_vis {it : iTree E R}{ev : E.In} {k}: it.unfold = .vis ev k → it ≈ .vis ev k := by
   simp only [iTree.unfold]
-  cases h : it.step it.curr <;> simp [reduceCtorEq, false_implies]
-  case vis A ev kS =>
-    rintro rfl rfl rfl
+  cases h : it.step it.curr <;> simp [reduceCtorEq, false_implies, iTree.currStep, h]
+  case vis ev kS =>
+    rintro rfl rfl
     unfold StrongBisim
     simp only [iTree.unfold, h, iTree.vis]
-    apply RelOverObs.vis _ _ _ _ ?_
+    apply RelOverObs.vis _ _ _ ?_
     intro a
     apply coinduct (fun
       (iTree.mk (State := State₁) curr₁ step₁)
       (iTree.mk (State := State₂) curr₂ step₂) =>
-      ∃ (mpr : PUnit ⊕ (_ : A) × State₁ → State₂),
+      ∃ (mpr : PUnit ⊕ (_ : E.Out ev) × State₁ → State₂),
       curr₂ = mpr (Sum.inr ⟨a, curr₁⟩) ∧
       ∀ (s : State₁),
       step₂ (mpr (.inr ⟨a, s⟩)) = (step₁ s).mapState (mpr <| .inr ⟨a, ·⟩)
@@ -619,7 +498,7 @@ theorem ObsEq.obsEq_vis_of_unfold_vis {it : iTree E R}{ev : E A} {k}: it.unfold 
       simp [Obs.mapState]
     case progress =>
       rintro ⟨c₁, s₁⟩ ⟨c₂, s₂⟩ ⟨H, HC, Hs⟩
-      cases h : s₁ c₁ <;> simp only [h, iTree.unfold, HC, Hs, Obs.mapState]
+      cases h : s₁ c₁ <;> simp only [h, iTree.unfold, HC, Hs, Obs.mapState, iTree.currStep]
       case ret v =>
         constructor; rfl
       case tau it =>
@@ -630,10 +509,11 @@ theorem ObsEq.obsEq_vis_of_unfold_vis {it : iTree E R}{ev : E A} {k}: it.unfold 
         intros
         exists H
 
-def iTree.obsEqElim {motive : iTree.{_,_,_,quest} E R → Sort _}
+def iTree.obsEqElim {motive : iTree.{_,_,_} E R → Sort _}
   (inv : ∀ {it it'}, it ≈ it' → motive it' → motive it)
+  -- NOTE: We would need to derive the proof of this ↑ automatically
   (ret : ∀ (v : R), motive (.ret v))
-  (vis : ∀ (A : Type _) (ev : E A) (k : A → iTree E R), motive (.vis ev k))
+  (vis : ∀ (ev : E.In) (k : E.Out ev → iTree E R), motive (.vis ev k))
   (tau : ∀ (it : iTree E R), motive (.tau it)) :
     ∀ it, motive it := fun it => by
   match h : it.unfold with
@@ -653,7 +533,7 @@ instance instSetoid : Setoid (iTree E R) where
   r := ObsEq
   iseqv := instEquiv
 
-def iTree'.{a,e,r} (E : Type a → Type e) (R : Type r) : Type _ := Quotient (instSetoid (E := E) (R := R))
+def iTree' (E : Effect.{e}) (R : Type r) : Type _ := Quotient (instSetoid (E := E) (R := R))
 
 namespace iTree'
 
@@ -670,13 +550,13 @@ def unfold (it' : iTree' E R) : Obs E R (iTree' E R) :=
     | ⟨.tau it₁, .tau it₂, h₁, h₂, .tau _ _ h⟩ =>
       simp only [Obs.mapState, Obs.tau.injEq, h₁, h₂]
       apply Quotient.sound h
-    | ⟨.vis ev k₁, .vis _ k₂, h₁, h₂, .vis _ _ _ _ hK⟩ =>
+    | ⟨.vis ev k₁, .vis _ k₂, h₁, h₂, .vis _ _ _ hK⟩ =>
       simp [*]
       ext a
       apply Quotient.sound (hK a)
   )
 
-def ret {R : Type _} (v : R){E : Type _ → Type _} := iTree'.mk (.ret v : iTree E R)
+def ret (v : R) := iTree'.mk (.ret v : iTree E R)
 
 theorem unfold_eq_ret (v : R) (it' : iTree' E R) :
     it'.unfold = .ret v → it' = iTree'.ret v := by
@@ -689,7 +569,7 @@ theorem unfold_eq_ret (v : R) (it' : iTree' E R) :
   cases h₂ : it.unfold <;> simp [h₂] at h
   simpa
 
-def tau {R : Type _} {E : Type _ → Type _} (it : iTree' E R) :=
+def tau (it : iTree' E R) :=
     it.lift (Quotient.mk inferInstance <| iTree.tau ·) (by
       intros it it' heq; simp; apply Quotient.sound
       apply ObsEq.tau_congr heq
@@ -710,40 +590,14 @@ theorem unfold_eq_tau (it' it'₂ : iTree' E R) :
     refine .trans ?_ (ObsEq.tau_congr h)
     apply ObsEq.obsEq_tau_of_unfold_tau h₂
 
-/-
-  In the following section, we use an unsafe computable implementation of
-  `Quotient.choice` to be able to define `Quotient.bubbleUp`. I believe
-  that this implementation is safe, since the unsafe operation happens
-  inside the creation of another quotient, and therefore cannot be
-  exploited. This claim has not been checked.
--/
-section doubious
-
--- def vis {A : Type a} {R : Type _}{E : Type a → Type _} (ev : E A) (k' : A → iTree' E R) : iTree' E R :=
---   (Dubious.Quotient.bubbleUp k').lift (.mk <| iTree.vis ev ·) (
---     fun k₁ k₂ k₁k₂ =>
---     Quotient.sound <| ObsEq.vis_congr _ _ _ <| fun a => by apply k₁k₂ a
---   )
-
-end doubious
-
-/-
-  A less dubious `vis` definition can be achieved by using the `iTree'`
-  itself as the state of an `iTree`. While elegant, this solution has
-  the issue that it bumps the universe levels, and therefore doesn't
-  seem to be usable to define a custom eliminator for `iTree'`.
--/
-section LessDoubiousVisDefinition
 -- picks an element out of the quotient, but bumps up the universes
 def out (it' : iTree' E R) : iTree E R where
     curr := it'
     step := iTree'.unfold
 
 set_option pp.universes true in
-def vis {A : Type a} {R : Type v}{E : Type a → Type r} (ev : E A) (k' : A → iTree' E R) : iTree' E R :=
+def vis (ev : E.In) (k' : E.Out ev → iTree' E R) : iTree' E R :=
   iTree'.mk (iTree.vis ev (out ∘ k'))
-
-end LessDoubiousVisDefinition
 
 /-
   I wonder if exploiting `Quotient.choice` to basically find a fixpoint is
@@ -760,66 +614,6 @@ theorem tau_mk_eq_mk_tau (it : iTree E R) :
     iTree'.tau (.mk it) = iTree'.mk (iTree.tau it) := by
   apply Quotient.sound
   apply StrongBisim.refl
-
--- theorem vis_mk_eq_mk_vis (ev : E A) (k : A → iTree E R) :
---     iTree'.vis ev (.mk ∘ k) = iTree'.mk (iTree.vis ev k) := by
---   refine Quotient.sound ?_
---   apply ObsEq.vis_congr
---   intro a
---   apply Quotient.exact
---   simp [Quotient.mk, Quot.out_eq, iTree'.mk]
-
--- -- Custom eliminator for `iTree'` in `Prop`
--- @[cases_eliminator]
--- def ind {R : Type r}{E : Type a → Type e} {motive : iTree' E R → Prop}
---   (ret : (v : R) → motive (.ret v))
---   (vis : ∀ {A : Type a} (ev : E A) (k : A → iTree' E R), motive (iTree'.vis ev k))
---   (tau : (it : iTree' E R) → motive (.tau it)) :
---     ∀ (it' : iTree' E R), motive it' := fun it' => by
---   apply Quotient.ind (q := it'); intro it
---   change motive (iTree'.mk it)
---   apply it.obsEqElim
---   case inv =>
---     intro it₁ it₂ it₁it₂ mit₂
---     unfold mk
---     exact Quotient.sound it₁it₂ ▸ mit₂
---   case ret =>
---     intro v
---     simp [←ret_eq_mk_ret]
---     apply ret
---   case tau =>
---     intro it₂
---     simp [←tau_mk_eq_mk_tau it₂]
---     apply tau
---   case vis ev k =>
---     intro A ev k
---     simp [←vis_mk_eq_mk_vis ev k]
---     apply vis
-
--- -- Could we define this elimination principle on motives not in `Prop`?
--- def elim {R : Type r}{E : Type a → Type e} {motive : iTree' E R → Type _}
---   (ret : (v : R) → motive (.ret v))
---   (vis : ∀ {A : Type a} (ev : E A) (k : A → iTree' E R), motive (iTree'.vis ev k))
---   (tau : (it : iTree' E R) → motive (.tau it)) :
---     ∀ (it' : iTree' E R), motive it' := fun it' => by
---   apply it'.rec (s := (instSetoid (E := E) (R := R))) (motive := motive)
---   case f =>
---     intro it
---     apply it.obsEqElim
---     case inv =>
---       intro it₁ it₂ it₁it₂ mit₂
---       exact Quotient.sound it₁it₂ ▸ mit₂
---     case ret =>
---       intro v
---       sorry
---     case tau =>
---       sorry
---     case vis =>
---       sorry
---   case h =>
---     intro it₁ it₂ it₁it₂
---     simp
---     sorry
 
 end iTree'
 
@@ -1073,7 +867,7 @@ def trans (a b c : iTree E R) : WeakBisim a b → WeakBisim b c → WeakBisim a 
             | drop_right a' b'' b''' b''_unfold a'_WB_b''' IH =>
               specialize IH _ b''_unfold  a'_unfold (extendLeft b''_unfold b''_WB_c)
               apply IH
-          | .vis (A := A) e k =>
+          | .vis e k =>
             -- We conclude
             clear b b_unfold a a_unfold
             have b''_WB_c := (extendLeft b'_unfold b'_WB_c)
@@ -1135,8 +929,8 @@ end WeakBisim
 
 instance : Equivalence (WeakBisim (E := E) (R := R)) where
   refl := .refl
-  symm := .symm
-  trans := .trans
+  symm := .symm _ _
+  trans := .trans _ _ _
 
 end WeakBisimulation
 
